@@ -110,9 +110,15 @@ export function deletePost(id) {
 
 /**
  * 리뷰 목록 조회.
+ *
+ * 도장깨기 인증 리뷰 모니터링: categoryCode='COURSE' 로 필터링하면
+ * ReviewCategoryCode.COURSE 로 작성된 리뷰만 조회된다.
+ * 기타 카테고리: THEATER_RECEIPT/WORLDCUP/WISHLIST/AI_RECOMMEND/PLAYLIST.
+ *
  * @param {Object} params - 쿼리 파라미터
  * @param {string} [params.movieId] - 영화 ID 필터
  * @param {number} [params.minRating] - 최소 평점 필터 (1~5)
+ * @param {string} [params.categoryCode] - 카테고리 enum 이름 필터 (생략 시 전체)
  * @param {number} [params.page=0] - 페이지 번호 (0-based)
  * @param {number} [params.size=10] - 페이지 크기
  * @returns {Promise<Object>} 페이징된 리뷰 목록

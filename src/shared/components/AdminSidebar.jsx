@@ -25,11 +25,18 @@ import {
   MdBarChart,
   MdMonitor,
   MdSettings,
+  MdBuild,
 } from 'react-icons/md';
 import { ADMIN_ROUTES } from '../constants/routes';
 import { media } from '../styles/media';
 
-/** 사이드바 메뉴 항목 (10탭) */
+/**
+ * 사이드바 메뉴 항목 (11탭).
+ *
+ * 11번째 "운영 도구" 탭은 마스터 데이터 + 운영 도구 통합 페이지로,
+ * 업적·장르·카테고리·리워드정책·포인트팩·도장깨기·퀴즈·월드컵 후보·
+ * 인기검색어·OCR 이벤트 등 13개 추가 기능 서브탭을 모은다.
+ */
 const MENU_ITEMS = [
   { path: ADMIN_ROUTES.DASHBOARD, icon: MdDashboard, label: '대시보드' },
   { path: ADMIN_ROUTES.USERS, icon: MdPeople, label: '사용자 관리' },
@@ -37,6 +44,7 @@ const MENU_ITEMS = [
   { path: ADMIN_ROUTES.PAYMENT, icon: MdPayment, label: '결제/포인트' },
   { path: ADMIN_ROUTES.DATA, icon: MdStorage, label: '데이터 관리' },
   { path: ADMIN_ROUTES.AI, icon: MdSmartToy, label: 'AI 운영' },
+  { path: ADMIN_ROUTES.OPERATIONS, icon: MdBuild, label: '운영 도구' },
   { path: ADMIN_ROUTES.SUPPORT, icon: MdSupportAgent, label: '고객센터' },
   { path: ADMIN_ROUTES.STATS, icon: MdBarChart, label: '통계/분석' },
   { path: ADMIN_ROUTES.SYSTEM, icon: MdMonitor, label: '시스템' },
