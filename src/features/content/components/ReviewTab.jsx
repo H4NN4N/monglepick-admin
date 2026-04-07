@@ -2,10 +2,10 @@
  * 리뷰 관리 탭 컴포넌트.
  *
  * 기능:
- * - 리뷰 목록 테이블 (movieId, userId, rating 별 표시, content 미리보기 100자, spoiler, isBlinded, likeCount, 작성일, 액션)
- * - 상단: movieId 검색 input + minRating select (1~5) + 새로고침
- * - 삭제 확인 다이얼로그
- * - 페이지네이션
+ * - 리뷰 목록 테이블 (영화ID, 작성자ID, 평점, 내용 미리보기, 카테고리, 스포일러, 블라인드, 좋아요, 작성일, 액션)
+ * - 상단: movieId 검색 input + minRating select + categoryCode select + 새로고침
+ * - 카테고리 필터로 도장깨기 인증 리뷰 모니터링 가능 (categoryCode='COURSE')
+ * - 삭제 확인 다이얼로그 + 페이지네이션
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -23,6 +23,27 @@ const MIN_RATING_OPTIONS = [
   { value: '4', label: '4점 이상' },
   { value: '5', label: '5점' },
 ];
+
+/**
+ * 리뷰 작성 카테고리 enum 옵션 (Backend ReviewCategoryCode 매칭).
+ *
+ * 백엔드 enum: THEATER_RECEIPT / COURSE / WORLDCUP / WISHLIST / AI_RECOMMEND / PLAYLIST
+ * 도장깨기 인증 리뷰 모니터링: 'COURSE' 선택 시 도장깨기 단계 인증 리뷰만 조회.
+ */
+const CATEGORY_OPTIONS = [
+  { value: '', label: '전체 카테고리' },
+  { value: 'COURSE', label: '도장깨기 인증' },
+  { value: 'THEATER_RECEIPT', label: '극장 영수증 인증' },
+  { value: 'WORLDCUP', label: '월드컵' },
+  { value: 'WISHLIST', label: '위시리스트' },
+  { value: 'AI_RECOMMEND', label: 'AI 추천' },
+  { value: 'PLAYLIST', label: '플레이리스트' },
+];
+
+/** 카테고리 코드 → 한글 라벨 매핑 (테이블 셀 표시용) */
+const CATEGORY_LABEL_MAP = CATEGORY_OPTIONS
+  .filter((o) => o.value)
+  .reduce((acc, o) => ({ ...acc, [o.value]: o.label }), {});
 
 /** 페이지당 항목 수 */
 const PAGE_SIZE = 10;
@@ -60,6 +81,7 @@ export default function ReviewTab() {
   const [movieIdInput, setMovieIdInput] = useState(''); // 입력 버퍼
   const [movieId, setMovieId] = useState('');           // 확정된 검색값
   const [minRating, setMinRating] = useState('');
+  const [categoryCode, setCategoryCode] = useState(''); // 작성 카테고리 enum 이름 필터
   const [page, setPage] = useState(0);
 
   /* ── 삭제 확인 다이얼로그 상태 ── */
@@ -74,6 +96,7 @@ export default function ReviewTab() {
       const params = { page, size: PAGE_SIZE };
       if (movieId) params.movieId = movieId;
       if (minRating) params.minRating = minRating;
+      if (categoryCode) params.categoryCode = categoryCode;
       const result = await fetchReviews(params);
       setReviews(result?.content ?? []);
       setTotalPages(result?.totalPages ?? 0);
@@ -82,7 +105,7 @@ export default function ReviewTab() {
     } finally {
       setLoading(false);
     }
-  }, [page, movieId, minRating]);
+  }, [page, movieId, minRating, categoryCode]);
 
   useEffect(() => {
     loadReviews();
@@ -102,6 +125,12 @@ export default function ReviewTab() {
   /** minRating 필터 변경 시 첫 페이지로 초기화 */
   function handleMinRatingChange(e) {
     setMinRating(e.target.value);
+    setPage(0);
+  }
+
+  /** 카테고리 필터 변경 시 첫 페이지로 초기화 */
+  function handleCategoryChange(e) {
+    setCategoryCode(e.target.value);
     setPage(0);
   }
 
@@ -156,6 +185,18 @@ export default function ReviewTab() {
               </option>
             ))}
           </FilterSelect>
+          {/* 작성 카테고리 select — 'COURSE' 선택 시 도장깨기 인증 리뷰 모니터링 */}
+          <FilterSelect
+            value={categoryCode}
+            onChange={handleCategoryChange}
+            title="작성 카테고리 필터"
+          >
+            {CATEGORY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </FilterSelect>
         </ToolbarLeft>
         <ToolbarRight>
           <IconButton onClick={loadReviews} disabled={loading} title="새로고침">
@@ -176,6 +217,7 @@ export default function ReviewTab() {
               <Th $w="110px">작성자 ID</Th>
               <Th $w="90px">평점</Th>
               <Th>내용 미리보기</Th>
+              <Th $w="100px">카테고리</Th>
               <Th $w="70px">스포일러</Th>
               <Th $w="80px">블라인드</Th>
               <Th $w="70px">좋아요</Th>
@@ -186,13 +228,13 @@ export default function ReviewTab() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   <CenterCell>불러오는 중...</CenterCell>
                 </td>
               </tr>
             ) : reviews.length === 0 ? (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   <CenterCell>리뷰가 없습니다.</CenterCell>
                 </td>
               </tr>
@@ -219,6 +261,16 @@ export default function ReviewTab() {
                     <PreviewText>
                       {review.content ? review.content.slice(0, 100) : '-'}
                     </PreviewText>
+                  </Td>
+                  {/* 작성 카테고리 (도장깨기 인증 모니터링용) */}
+                  <Td>
+                    {review.reviewCategoryCode ? (
+                      <CategoryBadge $highlight={review.reviewCategoryCode === 'COURSE'}>
+                        {CATEGORY_LABEL_MAP[review.reviewCategoryCode] ?? review.reviewCategoryCode}
+                      </CategoryBadge>
+                    ) : (
+                      <MutedText>-</MutedText>
+                    )}
                   </Td>
                   {/* 스포일러 여부 */}
                   <Td>
@@ -443,6 +495,26 @@ const PreviewText = styled.span`
   text-overflow: ellipsis;
   white-space: nowrap;
   color: ${({ theme }) => theme.colors.textSecondary};
+`;
+
+/**
+ * 카테고리 배지 — review_category_code 표시.
+ *
+ * $highlight=true(=COURSE) 일 때 도장깨기 인증 강조 색상 적용.
+ */
+const CategoryBadge = styled.span`
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  border-radius: 10px;
+  color: ${({ $highlight, theme }) =>
+    $highlight ? '#fff' : theme.colors.textSecondary};
+  background: ${({ $highlight, theme }) =>
+    $highlight ? theme.colors.primary : theme.colors.bgHover};
+  border: 1px solid ${({ $highlight, theme }) =>
+    $highlight ? theme.colors.primary : theme.colors.border};
+  white-space: nowrap;
 `;
 
 const MutedText = styled.span`
