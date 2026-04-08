@@ -3,17 +3,19 @@
  *
  * 2026-04-08 개편:
  *  - 구 "설정 > 감사 로그"를 본 탭으로 이동 (조회 전용 성격 통합)
- *  - 단일 세로 스택 → 서브탭 구조로 전환 (5개 섹션을 탭으로 분리)
  *
- * 5개 서브탭 (모두 조회 전용):
- *  - 서비스 상태: 서비스 헬스체크
- *  - DB 상태: 5개 DB 커넥션/쿼리 상태
+ * 2026-04-08 재개편 (서브탭 → 단일 페이지):
+ *  - 5개 서브탭을 제거하고 모든 섹션을 하나의 세로 스택으로 통합
+ *  - 관리자가 탭 전환 없이 전체 시스템 상태를 한 번에 조망할 수 있게 함
+ *
+ * 5개 섹션 (모두 조회 전용, 위→아래 순):
+ *  - 서비스 상태: 4개 서비스 헬스체크 (Spring Boot / Agent / Recommend / Nginx)
+ *  - DB 상태: 5개 DB 커넥션/쿼리 상태 (MySQL / Redis / Qdrant / Neo4j / ES)
  *  - Ollama: 로컬 LLM 상태
  *  - 설정 조회: 현재 런타임 설정값
- *  - 감사 로그: 관리자 활동 감사 로그 (구 설정 탭에서 이관)
+ *  - 감사 로그: 관리자 활동 감사 로그
  */
 
-import { useState } from 'react';
 import styled from 'styled-components';
 import ServiceStatus from '../components/ServiceStatus';
 import DbStatus from '../components/DbStatus';
@@ -21,18 +23,7 @@ import OllamaStatus from '../components/OllamaStatus';
 import ConfigViewer from '../components/ConfigViewer';
 import AuditLogTab from '../components/AuditLogTab';
 
-/** 서브탭 정의 */
-const TABS = [
-  { key: 'service', label: '서비스 상태' },
-  { key: 'db',      label: 'DB 상태' },
-  { key: 'ollama',  label: 'Ollama' },
-  { key: 'config',  label: '설정 조회' },
-  { key: 'audit',   label: '감사 로그' },
-];
-
 export default function SystemPage() {
-  const [activeTab, setActiveTab] = useState('service');
-
   return (
     <Wrapper>
       <PageHeader>
@@ -43,28 +34,19 @@ export default function SystemPage() {
         </PageDesc>
       </PageHeader>
 
-      <TabBar>
-        {TABS.map((tab) => (
-          <TabButton
-            key={tab.key}
-            $active={activeTab === tab.key}
-            onClick={() => setActiveTab(tab.key)}
-          >
-            {tab.label}
-          </TabButton>
-        ))}
-      </TabBar>
-
-      <TabContent>
-        {activeTab === 'service' && <ServiceStatus />}
-        {activeTab === 'db'      && <DbStatus />}
-        {activeTab === 'ollama'  && <OllamaStatus />}
-        {activeTab === 'config'  && <ConfigViewer />}
-        {activeTab === 'audit'   && <AuditLogTab />}
-      </TabContent>
+      {/* 모든 섹션을 세로 스택으로 한 페이지에 표시 */}
+      <Stack>
+        <ServiceStatus />
+        <DbStatus />
+        <OllamaStatus />
+        <ConfigViewer />
+        <AuditLogTab />
+      </Stack>
     </Wrapper>
   );
 }
+
+/* ── styled-components ── */
 
 const Wrapper = styled.div``;
 
@@ -83,28 +65,12 @@ const PageDesc = styled.p`
   color: ${({ theme }) => theme.colors.textMuted};
 `;
 
-const TabBar = styled.div`
+/**
+ * 섹션 스택 컨테이너.
+ * 각 컴포넌트가 이미 내부에 `<Section>` + margin-bottom 을 가지고 있으므로
+ * 별도 gap 없이 자연스럽게 세로로 쌓이도록 구성한다.
+ */
+const Stack = styled.div`
   display: flex;
-  gap: 2px;
-  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
-  margin-bottom: ${({ theme }) => theme.spacing.xxl};
-  flex-wrap: wrap;
+  flex-direction: column;
 `;
-
-const TabButton = styled.button`
-  padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.xl};
-  font-size: ${({ theme }) => theme.fontSizes.sm};
-  font-weight: ${({ theme }) => theme.fontWeights.medium};
-  color: ${({ $active, theme }) =>
-    $active ? theme.colors.primary : theme.colors.textSecondary};
-  border-bottom: 2px solid ${({ $active, theme }) =>
-    $active ? theme.colors.primary : 'transparent'};
-  transition: all ${({ theme }) => theme.transitions.fast};
-  margin-bottom: -1px;
-
-  &:hover {
-    color: ${({ theme }) => theme.colors.primary};
-  }
-`;
-
-const TabContent = styled.div``;
