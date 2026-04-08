@@ -55,10 +55,21 @@ export function updateUserRole(userId, data) {
  * @param {string} userId - 사용자 ID
  * @param {Object} data - 정지 요청 데이터
  * @param {string} data.reason - 정지 사유
+ * @param {number} [data.durationDays] - 임시 정지 일수 (null=영구 정지)
  * @returns {Promise<Object>} 처리 결과
  */
 export function suspendUser(userId, data) {
   return backendApi.put(`${ADMIN_USERS}/${userId}/suspend`, data);
+}
+
+/**
+ * 사용자 제재 이력 조회 (정지/복구 이력 최신순).
+ *
+ * @param {string} userId - 사용자 ID
+ * @returns {Promise<Array>} SuspensionHistoryResponse 배열
+ */
+export function fetchSuspensionHistory(userId) {
+  return backendApi.get(`${ADMIN_USERS}/${userId}/suspension-history`);
 }
 
 /**
@@ -108,4 +119,30 @@ export function fetchUserPoints(userId, params = {}) {
  */
 export function fetchUserPayments(userId, params = {}) {
   return backendApi.get(`${ADMIN_USERS}/${userId}/payments`, { params });
+}
+
+/**
+ * 관리자 수동 포인트 지급/회수 (Phase 6-2).
+ *
+ * @param {string} userId - 사용자 ID
+ * @param {Object} data - 조정 요청
+ * @param {number} data.amount - 변동량 (양수=지급, 음수=회수, 0 금지)
+ * @param {string} data.reason - 사유 (필수, 최대 300자)
+ * @returns {Promise<Object>} ManualPointResponse { deltaApplied, balanceBefore, balanceAfter, ... }
+ */
+export function adjustUserPoints(userId, data) {
+  return backendApi.post(`${ADMIN_USERS}/${userId}/points/adjust`, data);
+}
+
+/**
+ * 관리자 수동 AI 이용권 발급 (Phase 6-3).
+ *
+ * @param {string} userId - 사용자 ID
+ * @param {Object} data - 발급 요청
+ * @param {number} data.count - 발급 수량 (1 이상 정수)
+ * @param {string} data.reason - 사유 (필수, 최대 300자)
+ * @returns {Promise<Object>} GrantAiTokenResponse { grantedCount, tokensBefore, tokensAfter, ... }
+ */
+export function grantAiTokens(userId, data) {
+  return backendApi.post(`${ADMIN_USERS}/${userId}/tokens/grant`, data);
 }

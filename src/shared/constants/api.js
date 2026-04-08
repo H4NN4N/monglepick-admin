@@ -32,28 +32,47 @@ export const SYSTEM_ENDPOINTS = {
   CONFIG: `${ADMIN}/system/config`,
 };
 
-/* ── 결제/포인트 관리 (윤형주) ── */
+/* ── 결제/포인트 관리 (윤형주) ──
+ *
+ * 백엔드 AdminPaymentController(@RequestMapping("/api/v1/admin")) 기준 경로/메서드.
+ *
+ * 주의사항:
+ * - 보상 실패 건 목록은 별도 엔드포인트가 없다.
+ *   ORDERS 경로에 `status=COMPENSATION_FAILED` 필터로 조회한다 (paymentApi.fetchFailedOrders 참조).
+ * - 보상 복구(COMPENSATE) 경로는 설계서에 맞춰 `/subscription/{orderId}/compensate`(POST)이며,
+ *   {orderId}는 주문 UUID로 해석된다. AdminCompensateRequest는 adminNote 필수.
+ * - 구독 취소/연장은 PUT 메서드를 사용한다 (AdminPaymentController cancel/extend).
+ * - 포인트 이력은 전역 목록 엔드포인트에 userId 쿼리 파라미터로 필터링한다.
+ */
 export const PAYMENT_ADMIN_ENDPOINTS = {
   ORDERS: `${ADMIN}/payment/orders`,
   ORDER_DETAIL: (orderId) => `${ADMIN}/payment/orders/${orderId}`,
   REFUND: (orderId) => `${ADMIN}/payment/orders/${orderId}/refund`,
-  FAILED_ORDERS: `${ADMIN}/payment/orders/failed`,
-  COMPENSATE: (orderId) => `${ADMIN}/payment/orders/${orderId}/compensate`,
+  /** 보상 복구 — POST, body={adminNote} */
+  COMPENSATE: (orderId) => `${ADMIN}/subscription/${orderId}/compensate`,
   SUBSCRIPTIONS: `${ADMIN}/subscription`,
+  /** 구독 취소 — PUT (body 없음) */
   CANCEL_SUB: (id) => `${ADMIN}/subscription/${id}/cancel`,
+  /** 구독 연장 — PUT (body 선택) */
   EXTEND_SUB: (id) => `${ADMIN}/subscription/${id}/extend`,
+  /** 포인트 수동 지급/차감 — POST, body={userId, amount(±), reason} */
   POINT_MANUAL: `${ADMIN}/point/manual`,
-  POINT_HISTORY: (userId) => `${ADMIN}/point/history/${userId}`,
+  /** 포인트 변동 이력 — GET, query: userId/page/size */
+  POINT_HISTORIES: `${ADMIN}/point/histories`,
   POINT_ITEMS: `${ADMIN}/point/items`,
   POINT_ITEM_DETAIL: (id) => `${ADMIN}/point/items/${id}`,
 };
 
-/* ── 고객센터 관리 (윤형주) ── */
+/* ── 고객센터 관리 (윤형주) ──
+ * 2026-04-08: 앱 공지(AppNotice) 통합으로 NOTICE_ACTIVE 추가 (활성 토글 PATCH).
+ *             구 /api/v1/admin/app-notices/* 엔드포인트는 /notices/*로 흡수됨.
+ */
 export const SUPPORT_ADMIN_ENDPOINTS = {
   /* 공지사항 */
   NOTICES: `${ADMIN}/notices`,
   NOTICE_DETAIL: (id) => `${ADMIN}/notices/${id}`,
   NOTICE_REORDER: `${ADMIN}/notices/reorder`,
+  NOTICE_ACTIVE: (id) => `${ADMIN}/notices/${id}/active`,
   /* FAQ */
   FAQ: `${ADMIN}/faq`,
   FAQ_DETAIL: (id) => `${ADMIN}/faq/${id}`,
@@ -66,19 +85,15 @@ export const SUPPORT_ADMIN_ENDPOINTS = {
   TICKET_DETAIL: (id) => `${ADMIN}/tickets/${id}`,
   TICKET_STATUS: (id) => `${ADMIN}/tickets/${id}/status`,
   TICKET_REPLY: (id) => `${ADMIN}/tickets/${id}/reply`,
-  /* 비속어 */
-  PROFANITY: `${ADMIN}/profanity`,
-  PROFANITY_DETAIL: (id) => `${ADMIN}/profanity/${id}`,
-  PROFANITY_IMPORT: `${ADMIN}/profanity/import`,
-  PROFANITY_EXPORT: `${ADMIN}/profanity/export`,
+  /* 2026-04-08: 비속어 사전(PROFANITY*) 엔드포인트 제거 */
 };
 
-/* ── AI 운영 (윤형주) ── */
+/* ── AI 운영 (윤형주) ──
+ * 2026-04-08: REVIEW_GENERATE / REVIEW_HISTORY 제거 — AI 리뷰 생성 기능 삭제
+ */
 export const AI_ADMIN_ENDPOINTS = {
   QUIZ_GENERATE: `${ADMIN}/ai/quiz/generate`,
   QUIZ_HISTORY: `${ADMIN}/ai/quiz/history`,
-  REVIEW_GENERATE: `${ADMIN}/ai/review/generate`,
-  REVIEW_HISTORY: `${ADMIN}/ai/review/history`,
   CHAT_SESSIONS: `${ADMIN}/ai/chat/sessions`,
   CHAT_MESSAGES: (sessionId) => `${ADMIN}/ai/chat/sessions/${sessionId}/messages`,
   CHAT_STATS: `${ADMIN}/ai/chat/stats`,

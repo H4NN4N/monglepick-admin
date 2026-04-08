@@ -32,25 +32,7 @@ export function fetchQuizHistory(params) {
   return backendApi.get(AI_ADMIN_ENDPOINTS.QUIZ_HISTORY, { params });
 }
 
-/* ── AI 리뷰 ── */
-
-/**
- * AI 리뷰 생성 트리거 (Agent).
- * @param {Object} data - { movieId, tone }
- * @returns {Promise<Object>} 생성 결과
- */
-export function generateReview(data) {
-  return agentApi.post(AI_ADMIN_ENDPOINTS.REVIEW_GENERATE, data);
-}
-
-/**
- * AI 리뷰 생성 이력 조회 (Backend, 페이징).
- * @param {Object} params - { page, size }
- * @returns {Promise<Object>} 이력 목록
- */
-export function fetchReviewHistory(params) {
-  return backendApi.get(AI_ADMIN_ENDPOINTS.REVIEW_HISTORY, { params });
-}
+/* 2026-04-08: generateReview / fetchReviewHistory 제거 — AI 리뷰 생성 기능 삭제 */
 
 /* ── 챗봇 로그 ── */
 

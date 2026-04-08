@@ -133,12 +133,29 @@ export default function PaymentOrderTable() {
     loadOrders();
   }
 
-  /** 수동 보상 처리 */
+  /**
+   * 수동 보상 처리.
+   *
+   * 백엔드 `AdminCompensateRequest` 는 `adminNote`를 필수로 요구하므로
+   * prompt 로 관리자 메모를 받아 함께 전송한다. 공백만 입력한 경우 취소된다.
+   */
   async function handleCompensate(orderId) {
-    if (!window.confirm('해당 주문을 수동으로 보상 처리하시겠습니까?')) return;
+    const note = window.prompt(
+      `주문 ${orderId}을(를) 수동 보상 처리합니다.\n\n` +
+      '감사 로그에 남길 관리자 메모를 입력해주세요.\n' +
+      '(예: Toss 콘솔에서 포인트 수동 지급 완료)',
+      '',
+    );
+    /* null = 취소, 빈 문자열 = 필수 필드 누락으로 차단 */
+    if (note === null) return;
+    if (!note.trim()) {
+      alert('관리자 메모는 필수입니다.');
+      return;
+    }
+
     try {
       setCompensating(orderId);
-      await compensateOrder(orderId);
+      await compensateOrder(orderId, { adminNote: note.trim() });
       loadFailedOrders();
       loadOrders();
     } catch (err) {
