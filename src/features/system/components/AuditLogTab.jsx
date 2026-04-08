@@ -1,6 +1,9 @@
 /**
  * 감사 로그 서브탭 (읽기 전용).
  *
+ * 2026-04-08: 설정 → 시스템 탭으로 이동. 조회 전용 성격이 시스템 모니터링(서비스 상태/
+ * DB 상태/Ollama/Config)과 동일하여 통합. 설정 탭은 순수 CRUD 전용으로 정리함.
+ *
  * 기능:
  * - 관리자 활동 로그 목록 테이블 (actionType, targetType, targetId, description, adminId, IP, 시간)
  * - actionType 검색 필터 + 새로고침 버튼
@@ -12,7 +15,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { MdRefresh, MdSearch } from 'react-icons/md';
-import { fetchAuditLogs } from '../api/settingsApi';
+import { fetchAuditLogs } from '@/features/settings/api/settingsApi';
 
 /** 날짜+시간 포맷 함수 */
 function formatDateTime(dateStr) {

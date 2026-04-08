@@ -1,13 +1,17 @@
 /**
- * 콘텐츠 관리 메인 페이지.
+ * 게시판 관리 메인 페이지.
  *
- * 4개 서브탭으로 구성:
+ * 2026-04-08 개편:
+ *  - 구 "콘텐츠 관리" → "게시판 관리"로 이름 변경
+ *  - 카테고리 탭 흡수 (운영 도구에서 이관 — 게시글 카테고리는 게시판 도메인)
+ *
+ * 5개 서브탭:
  * - 신고 관리: 신고 목록 + 블라인드/삭제/무시 조치
  * - 혐오표현: 독성 로그 + 복원/삭제/경고 조치
  * - 게시글: 게시글 수정/삭제 + 키워드/카테고리 필터
  * - 리뷰: 리뷰 삭제 + 영화ID/평점 필터
+ * - 카테고리: 게시글 상위/하위 카테고리 CRUD
  *
- * SupportPage.jsx와 동일한 탭 전환 구조를 따릅니다.
  * 탭 전환 시 각 컴포넌트의 로컬 상태(필터, 페이지)를 보존하기 위해
  * $visible prop 기반 display:none 방식으로 처리합니다.
  */
@@ -18,26 +22,41 @@ import ReportTab from '../components/ReportTab';
 import ToxicityTab from '../components/ToxicityTab';
 import PostTab from '../components/PostTab';
 import ReviewTab from '../components/ReviewTab';
+import CategoryTab from '../components/CategoryTab';
 
 /** 서브탭 정의 */
 const TABS = [
-  { key: 'reports',  label: '신고 관리' },
-  { key: 'toxicity', label: '혐오표현' },
-  { key: 'posts',    label: '게시글' },
-  { key: 'reviews',  label: '리뷰' },
+  { key: 'reports',    label: '신고 관리' },
+  { key: 'toxicity',   label: '혐오표현' },
+  { key: 'posts',      label: '게시글' },
+  { key: 'reviews',    label: '리뷰' },
+  { key: 'categories', label: '카테고리' },
 ];
 
-export default function ContentPage() {
+export default function BoardPage() {
   /** 현재 활성 탭 키 (기본: 신고 관리) */
   const [activeTab, setActiveTab] = useState('reports');
+
+  /** 방문한 탭 Set — 처음 방문 시에만 마운트 */
+  const [visited, setVisited] = useState(() => new Set(['reports']));
+
+  function handleTabClick(key) {
+    setActiveTab(key);
+    setVisited((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }
 
   return (
     <Wrapper>
       {/* ── 페이지 헤더 ── */}
       <PageHeader>
-        <PageTitle>콘텐츠 관리</PageTitle>
+        <PageTitle>게시판 관리</PageTitle>
         <PageDesc>
-          신고 대기열 처리, 혐오표현 감지 로그, 게시글 및 리뷰 관리를 담당합니다.
+          신고 처리, 혐오표현 로그, 게시글·리뷰 관리, 게시글 카테고리 마스터를 담당합니다.
         </PageDesc>
       </PageHeader>
 
@@ -47,7 +66,7 @@ export default function ContentPage() {
           <TabButton
             key={tab.key}
             $active={activeTab === tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => handleTabClick(tab.key)}
           >
             {tab.label}
           </TabButton>
@@ -56,22 +75,20 @@ export default function ContentPage() {
 
       {/* ── 탭 콘텐츠 영역 ── */}
       <TabPanel>
-        {/*
-         * 탭 전환 시 각 컴포넌트의 로컬 상태(필터, 페이지 등)를 보존하기 위해
-         * unmount 대신 $visible prop으로 표시/숨김 처리.
-         * 단, 처음 방문한 탭만 마운트되도록 조건부 렌더링과 병행.
-         */}
         <TabContent $visible={activeTab === 'reports'}>
-          {activeTab === 'reports' && <ReportTab />}
+          {visited.has('reports') && <ReportTab />}
         </TabContent>
         <TabContent $visible={activeTab === 'toxicity'}>
-          {activeTab === 'toxicity' && <ToxicityTab />}
+          {visited.has('toxicity') && <ToxicityTab />}
         </TabContent>
         <TabContent $visible={activeTab === 'posts'}>
-          {activeTab === 'posts' && <PostTab />}
+          {visited.has('posts') && <PostTab />}
         </TabContent>
         <TabContent $visible={activeTab === 'reviews'}>
-          {activeTab === 'reviews' && <ReviewTab />}
+          {visited.has('reviews') && <ReviewTab />}
+        </TabContent>
+        <TabContent $visible={activeTab === 'categories'}>
+          {visited.has('categories') && <CategoryTab />}
         </TabContent>
       </TabPanel>
     </Wrapper>
@@ -102,6 +119,7 @@ const TabNav = styled.nav`
   border-bottom: 2px solid ${({ theme }) => theme.colors.border};
   margin-bottom: ${({ theme }) => theme.spacing.xxl};
   gap: 0;
+  flex-wrap: wrap;
 `;
 
 const TabButton = styled.button`
@@ -111,8 +129,8 @@ const TabButton = styled.button`
     $active ? theme.fontWeights.semibold : theme.fontWeights.normal};
   color: ${({ $active, theme }) =>
     $active ? theme.colors.primary : theme.colors.textSecondary};
-  border-bottom: 2px solid
-    ${({ $active, theme }) => ($active ? theme.colors.primary : 'transparent')};
+  border-bottom: 2px solid ${({ $active, theme }) =>
+    $active ? theme.colors.primary : 'transparent'};
   margin-bottom: -2px; /* border-bottom 겹침 보정 */
   transition: all ${({ theme }) => theme.transitions.fast};
   white-space: nowrap;

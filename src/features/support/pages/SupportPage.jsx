@@ -1,12 +1,13 @@
 /**
  * 고객센터 관리 탭 메인 페이지.
  *
- * 5개 서브탭으로 구성:
+ * 4개 서브탭으로 구성:
  * - 공지사항: 공지 CRUD + 카테고리 필터 + 고정/예약 발행
  * - FAQ: FAQ CRUD + 카테고리 필터
  * - 도움말: 도움말 CRUD + 카테고리 필터
  * - 상담 티켓: 티켓 목록/상세/답변 + 상태 관리
- * - 비속어 사전: 단어 CRUD + CSV 임포트/익스포트
+ *
+ * 2026-04-08: 비속어 사전 탭 제거 (관리자 요청).
  *
  * activeTab 상태를 useState로 관리하여 탭 전환 시 컴포넌트를 조건부 렌더링.
  * 탭 전환 시 기존 컴포넌트를 언마운트하지 않고 display:none 방식으로
@@ -20,7 +21,6 @@ import NoticeTab from '../components/NoticeTab';
 import FaqTab from '../components/FaqTab';
 import HelpTab from '../components/HelpTab';
 import TicketTab from '../components/TicketTab';
-import ProfanityTab from '../components/ProfanityTab';
 
 /** 서브탭 정의 */
 const TABS = [
@@ -28,7 +28,6 @@ const TABS = [
   { id: 'faq',       label: 'FAQ' },
   { id: 'help',      label: '도움말' },
   { id: 'ticket',    label: '상담 티켓' },
-  { id: 'profanity', label: '비속어 사전' },
 ];
 
 export default function SupportPage() {
@@ -41,7 +40,7 @@ export default function SupportPage() {
       <PageHeader>
         <PageTitle>고객센터 관리</PageTitle>
         <PageDesc>
-          공지사항, FAQ, 도움말 콘텐츠 CMS와 상담 티켓 처리, 비속어 사전을 관리합니다.
+          공지사항, FAQ, 도움말 콘텐츠 CMS와 상담 티켓을 관리합니다.
         </PageDesc>
       </PageHeader>
 
@@ -76,9 +75,6 @@ export default function SupportPage() {
         </TabContent>
         <TabContent $visible={activeTab === 'ticket'}>
           {activeTab === 'ticket' && <TicketTab />}
-        </TabContent>
-        <TabContent $visible={activeTab === 'profanity'}>
-          {activeTab === 'profanity' && <ProfanityTab />}
         </TabContent>
       </TabPanel>
     </Wrapper>

@@ -1,11 +1,16 @@
 /**
- * 결제/포인트 관리 탭 메인 페이지.
+ * 결제 / 포인트 관리 탭 메인 페이지.
  *
- * 4개 서브탭으로 구성된다:
+ * 2026-04-08 개편:
+ *  - "포인트팩" / "리워드 정책" 서브탭 흡수 (구 운영 도구 → 포인트 경제 도메인 통합)
+ *
+ * 6개 서브탭:
  * - 결제 내역: 전체 결제 주문 조회/환불, 보상 실패 건 수동 처리
  * - 구독 관리: 구독 목록 조회, 수동 취소/연장
  * - 포인트 관리: 수동 지급/차감, 사용자 이력 조회
  * - 포인트 아이템: 교환 아이템 목록 조회 및 인라인 수정
+ * - 포인트팩: 결제 포인트 팩 CRUD (가격/지급량) — 신규 흡수
+ * - 리워드 정책: 55종 활동 리워드 정책 CRUD — 신규 흡수
  *
  * 탭 상태는 URL 쿼리 파라미터(tab)로 동기화하지 않고
  * 단순 useState로 관리한다 (페이지 새로고침 시 첫 탭으로 초기화).
@@ -19,13 +24,17 @@ import PaymentOrderTable from '../components/PaymentOrderTable';
 import SubscriptionTable from '../components/SubscriptionTable';
 import PointManagement from '../components/PointManagement';
 import PointItemTable from '../components/PointItemTable';
+import PointPackTab from '../components/PointPackTab';
+import RewardPolicyTab from '../components/RewardPolicyTab';
 
 /** 서브탭 정의 */
 const TABS = [
-  { id: 'orders',       label: '결제 내역' },
-  { id: 'subscription', label: '구독 관리' },
-  { id: 'point',        label: '포인트 관리' },
-  { id: 'items',        label: '포인트 아이템' },
+  { id: 'orders',        label: '결제 내역' },
+  { id: 'subscription',  label: '구독 관리' },
+  { id: 'point',         label: '포인트 관리' },
+  { id: 'items',         label: '포인트 아이템' },
+  { id: 'point_pack',    label: '포인트팩' },
+  { id: 'reward_policy', label: '리워드 정책' },
 ];
 
 export default function PaymentPage() {
@@ -38,7 +47,8 @@ export default function PaymentPage() {
       <PageHeader>
         <PageTitle>결제 / 포인트 관리</PageTitle>
         <PageDesc>
-          결제 내역 조회 및 환불 처리, 구독 관리, 포인트 수동 지급/차감, 아이템 설정을 담당합니다.
+          결제 내역 조회 및 환불 처리, 구독 관리, 포인트 수동 지급/차감,
+          포인트 아이템·포인트팩·리워드 정책 CRUD를 담당합니다.
         </PageDesc>
       </PageHeader>
 
@@ -57,10 +67,12 @@ export default function PaymentPage() {
 
       {/* 탭 콘텐츠 영역 */}
       <TabContent>
-        {activeTab === 'orders'       && <PaymentOrderTable />}
-        {activeTab === 'subscription' && <SubscriptionTable />}
-        {activeTab === 'point'        && <PointManagement />}
-        {activeTab === 'items'        && <PointItemTable />}
+        {activeTab === 'orders'        && <PaymentOrderTable />}
+        {activeTab === 'subscription'  && <SubscriptionTable />}
+        {activeTab === 'point'         && <PointManagement />}
+        {activeTab === 'items'         && <PointItemTable />}
+        {activeTab === 'point_pack'    && <PointPackTab />}
+        {activeTab === 'reward_policy' && <RewardPolicyTab />}
       </TabContent>
     </Wrapper>
   );
@@ -91,6 +103,7 @@ const TabNav = styled.div`
   gap: 0;
   border-bottom: 2px solid ${({ theme }) => theme.colors.border};
   margin-bottom: ${({ theme }) => theme.spacing.xxl};
+  flex-wrap: wrap;
 `;
 
 const TabButton = styled.button`

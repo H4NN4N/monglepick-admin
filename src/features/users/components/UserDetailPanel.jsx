@@ -323,6 +323,33 @@ export default function UserDetailPanel({ userId, onClose, onRefresh }) {
                   계정 정지
                 </ActionButton>
               )}
+
+              {/* 제재 이력 조회 (Phase 6-1 보강) */}
+              <ActionButton
+                $variant="default"
+                onClick={() => setModalMode('history')}
+                title="제재 이력 조회"
+              >
+                제재 이력
+              </ActionButton>
+
+              {/* 수동 포인트 조정 (Phase 6-2) */}
+              <ActionButton
+                $variant="primary"
+                onClick={() => setModalMode('points')}
+                title="수동 포인트 지급/회수"
+              >
+                포인트 조정
+              </ActionButton>
+
+              {/* 수동 AI 이용권 발급 (Phase 6-3) */}
+              <ActionButton
+                $variant="primary"
+                onClick={() => setModalMode('grant-tokens')}
+                title="수동 AI 이용권 발급"
+              >
+                이용권 발급
+              </ActionButton>
             </ActionRow>
             {/* 관리자 계정 정지 불가 안내 */}
             {detail.userRole === 'ADMIN' && detail.status !== 'SUSPENDED' && (

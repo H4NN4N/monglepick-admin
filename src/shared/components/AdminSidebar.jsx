@@ -1,11 +1,19 @@
 /**
- * 관리자 사이드바 (10탭 네비게이션).
+ * 관리자 사이드바 (11탭 네비게이션).
  * 현재 경로 활성 표시 + 아이콘.
  *
  * 반응형 동작:
  * - 1024px 초과: 240px 너비, 텍스트 + 아이콘 표시
  * - 1024px 이하: 64px 너비(아이콘 전용), 텍스트 숨김, tooltip으로 레이블 표시
  * - 768px 이하: 완전 숨김 (translateX(-100%)), open prop으로 토글
+ *
+ * 2026-04-08 재배치:
+ *  - "콘텐츠 관리" → "게시판 관리"
+ *  - "데이터 관리" → "영화 데이터"
+ *  - "운영 도구" 해체 → "콘텐츠·이벤트" (도장깨기/퀴즈/월드컵/OCR만 남김)
+ *  - 탭은 도메인별로 순서 재조정:
+ *      대시보드 → 사용자 → 게시판 → 결제/포인트 → 콘텐츠·이벤트 →
+ *      영화 데이터 → AI 운영 → 통계/분석 → 고객센터 → 시스템 → 설정
  *
  * @param {Object} props
  * @param {boolean} props.open - 모바일에서 사이드바 열림 여부 (AdminLayout에서 제어)
@@ -17,15 +25,15 @@ import styled, { css } from 'styled-components';
 import {
   MdDashboard,
   MdPeople,
-  MdArticle,
+  MdForum,
   MdPayment,
-  MdStorage,
+  MdCelebration,
+  MdMovie,
   MdSmartToy,
-  MdSupportAgent,
   MdBarChart,
+  MdSupportAgent,
   MdMonitor,
   MdSettings,
-  MdBuild,
 } from 'react-icons/md';
 import { ADMIN_ROUTES } from '../constants/routes';
 import { media } from '../styles/media';
@@ -33,22 +41,24 @@ import { media } from '../styles/media';
 /**
  * 사이드바 메뉴 항목 (11탭).
  *
- * 11번째 "운영 도구" 탭은 마스터 데이터 + 운영 도구 통합 페이지로,
- * 업적·장르·카테고리·리워드정책·포인트팩·도장깨기·퀴즈·월드컵 후보·
- * 인기검색어·OCR 이벤트 등 13개 추가 기능 서브탭을 모은다.
+ * 도메인 기준 순서: 사용자 관리 → 게시판 → 결제 → 콘텐츠·이벤트 → 영화 데이터 →
+ * AI 운영 → 통계 → 고객센터 → 시스템 → 설정.
+ *
+ * 각 탭은 "조회+조작"을 한 곳에 묶는다.
+ * 예: 영화 데이터 탭 안에 데이터 현황(조회) + 영화/장르 마스터(조작) + 파이프라인이 모두 있음.
  */
 const MENU_ITEMS = [
-  { path: ADMIN_ROUTES.DASHBOARD, icon: MdDashboard, label: '대시보드' },
-  { path: ADMIN_ROUTES.USERS, icon: MdPeople, label: '사용자 관리' },
-  { path: ADMIN_ROUTES.CONTENT, icon: MdArticle, label: '콘텐츠 관리' },
-  { path: ADMIN_ROUTES.PAYMENT, icon: MdPayment, label: '결제/포인트' },
-  { path: ADMIN_ROUTES.DATA, icon: MdStorage, label: '데이터 관리' },
-  { path: ADMIN_ROUTES.AI, icon: MdSmartToy, label: 'AI 운영' },
-  { path: ADMIN_ROUTES.OPERATIONS, icon: MdBuild, label: '운영 도구' },
-  { path: ADMIN_ROUTES.SUPPORT, icon: MdSupportAgent, label: '고객센터' },
-  { path: ADMIN_ROUTES.STATS, icon: MdBarChart, label: '통계/분석' },
-  { path: ADMIN_ROUTES.SYSTEM, icon: MdMonitor, label: '시스템' },
-  { path: ADMIN_ROUTES.SETTINGS, icon: MdSettings, label: '설정' },
+  { path: ADMIN_ROUTES.DASHBOARD,       icon: MdDashboard,    label: '대시보드' },
+  { path: ADMIN_ROUTES.USERS,           icon: MdPeople,       label: '사용자 관리' },
+  { path: ADMIN_ROUTES.BOARD,           icon: MdForum,        label: '게시판 관리' },
+  { path: ADMIN_ROUTES.PAYMENT,         icon: MdPayment,      label: '결제/포인트' },
+  { path: ADMIN_ROUTES.CONTENT_EVENTS,  icon: MdCelebration,  label: '콘텐츠·이벤트' },
+  { path: ADMIN_ROUTES.DATA,            icon: MdMovie,        label: '영화 데이터' },
+  { path: ADMIN_ROUTES.AI,              icon: MdSmartToy,     label: 'AI 운영' },
+  { path: ADMIN_ROUTES.STATS,           icon: MdBarChart,     label: '통계/분석' },
+  { path: ADMIN_ROUTES.SUPPORT,         icon: MdSupportAgent, label: '고객센터' },
+  { path: ADMIN_ROUTES.SYSTEM,          icon: MdMonitor,      label: '시스템' },
+  { path: ADMIN_ROUTES.SETTINGS,        icon: MdSettings,     label: '설정' },
 ];
 
 export default function AdminSidebar({ open = false, onNavClick }) {

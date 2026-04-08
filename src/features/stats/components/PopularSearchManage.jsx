@@ -1,5 +1,9 @@
 /**
- * 운영 도구 — 인기 검색어(PopularSearchKeyword) 관리 탭.
+ * 인기 검색어 운영 관리 섹션 (PopularSearchKeyword CRUD).
+ *
+ * 2026-04-08: 운영 도구 탭 해체로 "통계/분석 > 검색 분석" 탭의 하단 섹션으로
+ * 이동. 검색 품질 지표/TOP 20 조회(SearchTab 상단)와 수동 운영(본 컴포넌트)을
+ * 한 화면에서 함께 본다 — 조회와 조작을 동일 도메인에 묶는 원칙.
  *
  * 기능:
  * - 인기 검색어 마스터 목록 조회 (페이징)
@@ -36,7 +40,7 @@ const EMPTY_FORM = {
   adminNote: '',
 };
 
-export default function PopularSearchTab() {
+export default function PopularSearchManage() {
   const [keywords, setKeywords] = useState([]);
   const [totalPages, setTotalPages] = useState(0);
   const [page, setPage] = useState(0);
