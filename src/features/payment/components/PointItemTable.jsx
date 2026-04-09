@@ -12,9 +12,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
-import { MdRefresh, MdEdit, MdCheck, MdClose } from 'react-icons/md';
+import { MdRefresh, MdEdit, MdCheck, MdClose, MdAdd } from 'react-icons/md';
 import { fetchPointItems, updatePointItem } from '../api/paymentApi';
 import StatusBadge from '@/shared/components/StatusBadge';
+import PointItemCreateModal from './PointItemCreateModal';
 
 /** 카테고리 한국어 레이블 */
 const CATEGORY_LABEL = {
@@ -48,6 +49,9 @@ export default function PointItemTable() {
   const [savingId, setSavingId] = useState(null);
   /* 편집 에러 */
   const [editError, setEditError] = useState(null);
+
+  /* 신규 등록 모달 오픈 여부 — 2026-04-09 P1-⑪ 추가 */
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   /** 아이템 목록 조회 */
   const loadItems = useCallback(async () => {
@@ -150,9 +154,25 @@ export default function PointItemTable() {
     <Section>
       <SectionHeader>
         <SectionTitle>포인트 아이템 ({items.length}개)</SectionTitle>
-        <RefreshButton onClick={loadItems} disabled={loading}>
-          <MdRefresh size={16} />
-        </RefreshButton>
+        <HeaderActions>
+          {/*
+            신규 추가 버튼 — 2026-04-09 P1-⑪ 추가.
+            Backend createPointItem 엔드포인트와 서비스는 이미 있었으나 UI 가 없어
+            관리자가 신규 아이템을 등록할 수 없었다. 본 버튼 + 모달로 공백 해소.
+          */}
+          <CreateButton
+            type="button"
+            onClick={() => setCreateModalOpen(true)}
+            disabled={loading || editingId !== null}
+            title={editingId !== null ? '편집 중에는 신규 등록 불가' : '신규 아이템 등록'}
+          >
+            <MdAdd size={16} />
+            신규 등록
+          </CreateButton>
+          <RefreshButton onClick={loadItems} disabled={loading} title="새로고침">
+            <MdRefresh size={16} />
+          </RefreshButton>
+        </HeaderActions>
       </SectionHeader>
 
       <GuideText>
@@ -299,6 +319,16 @@ export default function PointItemTable() {
           </Table>
         )}
       </TableWrapper>
+
+      {/*
+        신규 등록 모달 — isOpen=true 일 때만 내부 렌더링.
+        onCreated 콜백으로 등록 성공 직후 loadItems() 재호출하여 목록 동기화.
+      */}
+      <PointItemCreateModal
+        isOpen={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        onCreated={loadItems}
+      />
     </Section>
   );
 }
@@ -319,6 +349,40 @@ const SectionHeader = styled.div`
 const SectionTitle = styled.h3`
   font-size: ${({ theme }) => theme.fontSizes.heading};
   font-weight: ${({ theme }) => theme.fontWeights.semibold};
+`;
+
+/** 헤더 우측 액션 버튼 그룹 — 신규 등록 + 새로고침 가로 배치 */
+const HeaderActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.sm};
+`;
+
+/**
+ * 신규 아이템 등록 버튼 — primary 컬러, 아이콘 + 텍스트.
+ * 2026-04-09 P1-⑪ 추가.
+ */
+const CreateButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.xs};
+  padding: 6px ${({ theme }) => theme.spacing.lg};
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: #ffffff;
+  background: ${({ theme }) => theme.colors.primary};
+  border-radius: 4px;
+  transition: opacity ${({ theme }) => theme.transitions.fast};
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    opacity: 0.85;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 `;
 
 const GuideText = styled.p`

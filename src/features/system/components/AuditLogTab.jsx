@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { MdRefresh, MdSearch } from 'react-icons/md';
 import { fetchAuditLogs } from '@/features/settings/api/settingsApi';
+import AuditLogDetailModal from './AuditLogDetailModal';
 
 /** 날짜+시간 포맷 함수 */
 function formatDateTime(dateStr) {
@@ -50,20 +51,59 @@ const ACTION_STATUS_COLORS = {
   default: { bg: '#f1f5f9', text: '#475569', border: '#e2e8f0' },
 };
 
+/**
+ * targetType 드롭다운 옵션 — 2026-04-09 P1-⑤ 신규.
+ * Backend AdminAuditService 의 TARGET_* 상수와 1:1 매핑.
+ */
+const TARGET_TYPE_OPTIONS = [
+  { value: '',                label: '전체 대상' },
+  { value: 'USER',            label: 'USER (사용자)' },
+  { value: 'PAYMENT',         label: 'PAYMENT (결제 주문)' },
+  { value: 'SUBSCRIPTION',    label: 'SUBSCRIPTION (구독)' },
+  { value: 'EXPORT_SOURCE',   label: 'EXPORT_SOURCE (CSV 내보내기)' },
+  { value: 'POST',            label: 'POST (게시글)' },
+  { value: 'FAQ',             label: 'FAQ' },
+  { value: 'BANNER',          label: 'BANNER (배너)' },
+];
+
 export default function AuditLogTab() {
   /* ── 목록 상태 ── */
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  /* ── 검색/필터 상태 ── */
-  const [searchInput, setSearchInput] = useState(''); // 입력 중인 검색어
-  const [actionTypeFilter, setActionTypeFilter] = useState(''); // 실제 적용된 검색어
+  /* ── 검색/필터 입력 상태 (타이핑 중인 값, 아직 API 에 전달되지 않음) ── */
+  const [searchInput, setSearchInput] = useState('');     // actionType 입력
+  const [targetTypeInput, setTargetTypeInput] = useState(''); // targetType 입력
+  const [fromDateInput, setFromDateInput] = useState(''); // 시작 시각 (datetime-local 문자열)
+  const [toDateInput, setToDateInput] = useState('');     // 종료 시각 (datetime-local 문자열)
+
+  /* ── 실제 API 요청에 사용되는 확정 필터 상태 ── */
+  const [actionTypeFilter, setActionTypeFilter] = useState('');
+  const [targetTypeFilter, setTargetTypeFilter] = useState('');
+  const [fromDateFilter, setFromDateFilter]     = useState('');
+  const [toDateFilter, setToDateFilter]         = useState('');
 
   /* ── 페이지네이션 상태 ── */
   const [page, setPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const PAGE_SIZE = 10;
+
+  /*
+   * ── 상세 보기 모달 상태 (2026-04-09 P2-⑲ 추가) ──
+   * 행 클릭 시 해당 로그 객체를 저장하고 모달을 연다. null 이면 닫힘 상태.
+   */
+  const [selectedLog, setSelectedLog] = useState(null);
+
+  /**
+   * datetime-local input 값(예: "2026-04-09T14:30")을 Backend 가 받는
+   * ISO-8601 초 단위 문자열("2026-04-09T14:30:00")로 변환한다.
+   * 빈 문자열이면 undefined 반환 → URLSearchParams 에서 자동으로 제외된다.
+   */
+  function toIsoOrUndefined(datetimeLocal) {
+    if (!datetimeLocal) return undefined;
+    return datetimeLocal.length === 16 ? `${datetimeLocal}:00` : datetimeLocal;
+  }
 
   /** 감사 로그 목록 조회 */
   const loadLogs = useCallback(async () => {
@@ -71,10 +111,15 @@ export default function AuditLogTab() {
       setLoading(true);
       setError(null);
       const params = { page, size: PAGE_SIZE };
-      // actionType 필터가 있으면 파라미터에 추가
-      if (actionTypeFilter.trim()) {
-        params.actionType = actionTypeFilter.trim();
-      }
+      /* 확정 필터 값이 있을 때만 파라미터에 실어 보낸다 — Spring 은 빈 문자열을 null 로
+       * 인식하지 않으므로 여기서 조건부로 추가해야 한다. */
+      if (actionTypeFilter.trim()) params.actionType = actionTypeFilter.trim();
+      if (targetTypeFilter)        params.targetType = targetTypeFilter;
+      const fromIso = toIsoOrUndefined(fromDateFilter);
+      const toIso   = toIsoOrUndefined(toDateFilter);
+      if (fromIso) params.fromDate = fromIso;
+      if (toIso)   params.toDate   = toIso;
+
       const result = await fetchAuditLogs(params);
       setLogs(result?.content ?? (Array.isArray(result) ? result : []));
       setTotalPages(result?.totalPages ?? 0);
@@ -83,65 +128,144 @@ export default function AuditLogTab() {
     } finally {
       setLoading(false);
     }
-  }, [page, actionTypeFilter]);
+  }, [page, actionTypeFilter, targetTypeFilter, fromDateFilter, toDateFilter]);
 
   useEffect(() => {
     loadLogs();
   }, [loadLogs]);
 
-  /** 검색 실행 (Enter 키 또는 검색 버튼) */
+  /**
+   * 검색 실행 — 입력 중인 모든 필터 값을 확정 상태로 커밋하고 첫 페이지로 이동.
+   * 폼 제출(Enter 또는 검색 버튼 클릭) 시 호출된다.
+   */
   function handleSearch(e) {
     e.preventDefault();
-    // 필터 변경 시 첫 페이지로 초기화
     setPage(0);
     setActionTypeFilter(searchInput);
+    setTargetTypeFilter(targetTypeInput);
+    setFromDateFilter(fromDateInput);
+    setToDateFilter(toDateInput);
   }
 
-  /** 검색 초기화 */
+  /** 모든 필터 초기화 */
   function handleReset() {
     setSearchInput('');
+    setTargetTypeInput('');
+    setFromDateInput('');
+    setToDateInput('');
     setPage(0);
     setActionTypeFilter('');
+    setTargetTypeFilter('');
+    setFromDateFilter('');
+    setToDateFilter('');
   }
+
+  /** 현재 확정 필터가 하나라도 적용되어 있는지 */
+  const hasActiveFilter =
+    !!actionTypeFilter || !!targetTypeFilter || !!fromDateFilter || !!toDateFilter;
 
   return (
     <Container>
-      {/* ── 툴바 ── */}
+      {/* ── 툴바 (타이틀 + 새로고침) ── */}
       <Toolbar>
         <ToolbarLeft>
           <SectionTitle>감사 로그</SectionTitle>
         </ToolbarLeft>
         <ToolbarRight>
-          {/* actionType 검색 폼 */}
-          <SearchForm onSubmit={handleSearch}>
-            <SearchInputWrap>
-              <MdSearch size={15} />
-              <SearchInput
-                type="text"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="액션 유형으로 검색 (예: DELETE)"
-              />
-            </SearchInputWrap>
-            <SearchButton type="submit">검색</SearchButton>
-            {/* 검색어가 적용된 경우 초기화 버튼 표시 */}
-            {actionTypeFilter && (
-              <ResetButton type="button" onClick={handleReset}>
-                초기화
-              </ResetButton>
-            )}
-          </SearchForm>
           <IconButton onClick={loadLogs} disabled={loading} title="새로고침">
             <MdRefresh size={16} />
           </IconButton>
         </ToolbarRight>
       </Toolbar>
 
-      {/* 적용된 필터 표시 */}
-      {actionTypeFilter && (
-        <FilterBadge>
-          검색 중: <strong>{actionTypeFilter}</strong>
-        </FilterBadge>
+      {/*
+        고급 필터 폼 — 2026-04-09 P1-⑤ 확장.
+        기존에는 actionType 하나만 있었지만, 실제 감사 추적에 필요한
+        "targetType(대상 유형) + 시간 범위(from~to)" 복합 조건을 추가한다.
+        폼 제출(Enter 또는 검색 버튼) 시에만 API 를 재호출하여 타이핑 중
+        불필요한 호출을 방지한다.
+      */}
+      <SearchForm onSubmit={handleSearch}>
+        {/* actionType 텍스트 입력 */}
+        <SearchInputWrap>
+          <MdSearch size={15} />
+          <SearchInput
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="액션 유형 키워드 (예: DELETE, REFUND)"
+          />
+        </SearchInputWrap>
+
+        {/* targetType 드롭다운 */}
+        <FilterSelect
+          value={targetTypeInput}
+          onChange={(e) => setTargetTypeInput(e.target.value)}
+          title="대상 엔티티 유형 필터"
+        >
+          {TARGET_TYPE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </FilterSelect>
+
+        {/* 시작 시각 datetime-local */}
+        <DateFieldWrap>
+          <DateLabel>시작</DateLabel>
+          <DateInput
+            type="datetime-local"
+            value={fromDateInput}
+            onChange={(e) => setFromDateInput(e.target.value)}
+            max={toDateInput || undefined}
+            title="시작 시각 (inclusive)"
+          />
+        </DateFieldWrap>
+
+        {/* 종료 시각 datetime-local */}
+        <DateFieldWrap>
+          <DateLabel>종료</DateLabel>
+          <DateInput
+            type="datetime-local"
+            value={toDateInput}
+            onChange={(e) => setToDateInput(e.target.value)}
+            min={fromDateInput || undefined}
+            title="종료 시각 (exclusive)"
+          />
+        </DateFieldWrap>
+
+        <SearchButton type="submit">검색</SearchButton>
+        {hasActiveFilter && (
+          <ResetButton type="button" onClick={handleReset}>
+            초기화
+          </ResetButton>
+        )}
+      </SearchForm>
+
+      {/* 적용된 필터 표시 — 각 확정 필터별로 배지를 나열한다 */}
+      {hasActiveFilter && (
+        <FilterBadgeRow>
+          {actionTypeFilter && (
+            <FilterBadge>
+              액션: <strong>{actionTypeFilter}</strong>
+            </FilterBadge>
+          )}
+          {targetTypeFilter && (
+            <FilterBadge>
+              대상: <strong>{targetTypeFilter}</strong>
+            </FilterBadge>
+          )}
+          {fromDateFilter && (
+            <FilterBadge>
+              이후: <strong>{fromDateFilter.replace('T', ' ')}</strong>
+            </FilterBadge>
+          )}
+          {toDateFilter && (
+            <FilterBadge>
+              이전: <strong>{toDateFilter.replace('T', ' ')}</strong>
+            </FilterBadge>
+          )}
+        </FilterBadgeRow>
       )}
 
       {/* ── 에러 메시지 ── */}
@@ -172,8 +296,8 @@ export default function AuditLogTab() {
               <tr>
                 <td colSpan={7}>
                   <CenterCell>
-                    {actionTypeFilter
-                      ? `"${actionTypeFilter}" 검색 결과가 없습니다.`
+                    {hasActiveFilter
+                      ? '지정한 필터 조건에 해당하는 감사 로그가 없습니다.'
                       : '감사 로그가 없습니다.'}
                   </CenterCell>
                 </td>
@@ -185,7 +309,12 @@ export default function AuditLogTab() {
                 const badgeStatus = getActionBadgeStatus(log.actionType);
                 const badgeColors = ACTION_STATUS_COLORS[badgeStatus];
                 return (
-                  <Tr key={key}>
+                  <Tr
+                    key={key}
+                    onClick={() => setSelectedLog(log)}
+                    $clickable
+                    title="클릭하여 상세 정보 및 JSON Diff 보기"
+                  >
                     <Td>
                       {/* actionType 인라인 배지 */}
                       <ActionBadge
@@ -241,6 +370,16 @@ export default function AuditLogTab() {
           </PageButton>
         </Pagination>
       )}
+
+      {/*
+        상세 보기 모달 — 2026-04-09 P2-⑲.
+        selectedLog 가 설정된 경우에만 내부 렌더링. 닫기 시 null 로 초기화.
+      */}
+      <AuditLogDetailModal
+        log={selectedLog}
+        isOpen={!!selectedLog}
+        onClose={() => setSelectedLog(null)}
+      />
     </Container>
   );
 }
@@ -276,11 +415,80 @@ const SectionTitle = styled.h3`
   color: ${({ theme }) => theme.colors.textPrimary};
 `;
 
-/* 검색 폼 래퍼 */
+/**
+ * 검색 폼 래퍼 — 2026-04-09 P1-⑤ 확장.
+ * 여러 필터 필드(텍스트/셀렉트/날짜 2개)를 가로로 배치하고, 공간이 부족하면
+ * 자동 줄바꿈하여 좁은 화면에서도 사용 가능하도록 한다.
+ */
 const SearchForm = styled.form`
   display: flex;
   align-items: center;
-  gap: ${({ theme }) => theme.spacing.xs};
+  gap: ${({ theme }) => theme.spacing.sm};
+  flex-wrap: wrap;
+  margin-bottom: ${({ theme }) => theme.spacing.md};
+  padding: ${({ theme }) => theme.spacing.md};
+  background: ${({ theme }) => theme.colors.bgHover};
+  border: 1px solid ${({ theme }) => theme.colors.borderLight};
+  border-radius: ${({ theme }) => theme.layout.cardRadius};
+`;
+
+/** targetType 드롭다운 — 스타일은 SearchInputWrap 과 시각적 무게감 맞춤 */
+const FilterSelect = styled.select`
+  height: 32px;
+  padding: 0 10px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  background: #ffffff;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+`;
+
+/** 날짜 입력 필드 + 라벨 래퍼 */
+const DateFieldWrap = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+/** 날짜 입력 라벨 ("시작", "종료") */
+const DateLabel = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  white-space: nowrap;
+`;
+
+/** datetime-local 입력 — 기본 브라우저 스타일 유지하되 크기/컬러만 통일 */
+const DateInput = styled.input`
+  height: 32px;
+  padding: 0 8px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  background: #ffffff;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: ${({ theme }) => theme.fonts.base};
+
+  &:focus {
+    outline: none;
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+`;
+
+/**
+ * 적용 중인 필터를 여러 개 나열할 때 감싸는 flex 컨테이너.
+ * 2026-04-09 P1-⑤ 확장 — 기존에는 단일 배지였지만 이제 최대 4개(action/target/from/to)까지 표시된다.
+ */
+const FilterBadgeRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: ${({ theme }) => theme.spacing.md};
 `;
 
 const SearchInputWrap = styled.div`
@@ -351,12 +559,14 @@ const IconButton = styled.button`
   }
 `;
 
-/* 적용된 필터 표시 뱃지 */
+/**
+ * 적용된 필터 표시 뱃지 — FilterBadgeRow 의 자식으로 사용한다.
+ * 2026-04-09 P1-⑤ 확장 시 부모 컨테이너가 gap 을 제공하므로 자체 margin 은 제거.
+ */
 const FilterBadge = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-bottom: ${({ theme }) => theme.spacing.md};
   padding: 4px 10px;
   font-size: ${({ theme }) => theme.fontSizes.xs};
   background: ${({ theme }) => theme.colors.primaryLight};
@@ -400,6 +610,9 @@ const Th = styled.th`
 
 const Tr = styled.tr`
   border-bottom: 1px solid ${({ theme }) => theme.colors.borderLight};
+  cursor: ${({ $clickable }) => ($clickable ? 'pointer' : 'default')};
+  transition: background ${({ theme }) => theme.transitions.fast};
+
   &:last-child {
     border-bottom: none;
   }

@@ -24,6 +24,10 @@ import {
   updateRewardPolicy,
   updateRewardPolicyActive,
 } from '../api/rewardPolicyApi';
+/* 2026-04-09 P2-⑬ 확장: 대량 CSV 등록 인프라 재사용 */
+import CsvImportButton from '@/shared/components/CsvImportButton';
+/* 2026-04-09 P2-⑰ 확장: 전체 정책 변경 이력 대시보드 모달 */
+import PolicyHistoryDashboardModal from './PolicyHistoryDashboardModal';
 
 const PAGE_SIZE = 10;
 
@@ -39,6 +43,186 @@ const CATEGORY_OPTIONS = [
 const POINT_TYPES = [
   { value: 'earn', label: 'earn (등급 배율 적용)' },
   { value: 'bonus', label: 'bonus (고정 보너스)' },
+];
+
+/**
+ * CSV 대량 등록 컬럼 정의 — 2026-04-09 P2-⑬.
+ *
+ * RewardPolicy 는 14개 필드 중 대부분이 숫자/선택 필드이고, Backend `createRewardPolicy()` 는
+ * `changeReason` 을 필수로 받는다 (정책 변경 이력 INSERT-ONLY 원장 기록용). CSV 행에도
+ * `changeReason` 컬럼이 있어야 하며, 값이 없으면 기본 "신규 정책 CSV 일괄 등록" 으로 채운다.
+ *
+ * ## 설계 주의
+ *
+ * - **actionType 신규 등록 한정**: 수정은 CSV 임포트로 하지 않는다. 기존 actionType 과 충돌 시
+ *   Backend 에서 409 로 반환되어 실패 목록에 수집된다. 업데이트가 필요하면 개별 수정 모달 사용.
+ * - **RewardPolicy 이력 테이블**: 각 row 가 성공적으로 등록되면 `RewardPolicyHistory` 에 자동
+ *   INSERT 되므로 이력 추적이 보장된다.
+ * - **정수 필드 기본 0**: 기존 폼이 `toIntOrZero()` 로 빈 값을 0 으로 변환하는 것과 동일하게
+ *   CSV 에서도 생략 시 0 으로 간주하도록 transform 에서 빈 값이 들어오면 0 을 반환한다.
+ *   단, CSV 의 빈 셀은 `rowToPayload()` 에서 이미 제외되므로 transform 이 호출되지 않는다.
+ *   따라서 빈 값은 payload 에서 아예 빠지고 Backend 가 기본값(0)을 쓴다.
+ */
+const CSV_IMPORT_COLUMNS = [
+  {
+    key: 'actionType',
+    header: 'actionType',
+    required: true,
+    description: '정책 식별자 (예: POST_CREATE, REVIEW_WRITE). UNIQUE 제약',
+    example: 'POST_CREATE',
+    example2: 'REVIEW_WRITE',
+  },
+  {
+    key: 'activityName',
+    header: 'activityName',
+    required: true,
+    description: '관리자/사용자 노출 활동명 (예: 게시글 작성)',
+    example: '게시글 작성',
+    example2: '리뷰 작성',
+  },
+  {
+    key: 'actionCategory',
+    header: 'actionCategory',
+    required: true,
+    description: 'CONTENT / ENGAGEMENT / MILESTONE / ATTENDANCE 중 하나',
+    example: 'CONTENT',
+    example2: 'CONTENT',
+    transform: (raw) => {
+      const allowed = ['CONTENT', 'ENGAGEMENT', 'MILESTONE', 'ATTENDANCE'];
+      const upper = String(raw).toUpperCase();
+      if (!allowed.includes(upper)) {
+        throw new Error(`허용값: ${allowed.join(', ')}`);
+      }
+      return upper;
+    },
+  },
+  {
+    key: 'pointsAmount',
+    header: 'pointsAmount',
+    required: true,
+    description: '지급 포인트 (정수)',
+    example: 10,
+    example2: 20,
+    transform: (raw) => {
+      const n = Number(raw);
+      if (!Number.isInteger(n)) throw new Error('정수여야 합니다');
+      return n;
+    },
+  },
+  {
+    key: 'pointType',
+    header: 'pointType',
+    description: 'earn (등급 배율 적용) 또는 bonus (고정 보너스). 기본 earn',
+    example: 'earn',
+    example2: 'bonus',
+    transform: (raw) => {
+      const v = String(raw).toLowerCase();
+      if (!['earn', 'bonus'].includes(v)) {
+        throw new Error('earn 또는 bonus');
+      }
+      return v;
+    },
+  },
+  {
+    key: 'dailyLimit',
+    header: 'dailyLimit',
+    description: '일일 획득 한도 횟수 (0 = 무제한, 정수)',
+    example: 5,
+    example2: 3,
+    transform: (raw) => {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수');
+      return n;
+    },
+  },
+  {
+    key: 'maxCount',
+    header: 'maxCount',
+    description: '총 획득 최대 횟수 (0 = 무제한, 정수)',
+    example: 0,
+    transform: (raw) => {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수');
+      return n;
+    },
+  },
+  {
+    key: 'cooldownSeconds',
+    header: 'cooldownSeconds',
+    description: '다음 획득까지 대기 초 (0 = 없음)',
+    example: 0,
+    transform: (raw) => {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수');
+      return n;
+    },
+  },
+  {
+    key: 'minContentLength',
+    header: 'minContentLength',
+    description: '최소 콘텐츠 길이 (글자 수, 0 = 제한 없음)',
+    example: 100,
+    example2: 50,
+    transform: (raw) => {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수');
+      return n;
+    },
+  },
+  {
+    key: 'limitType',
+    header: 'limitType',
+    description: '제한 유형 코드 (선택, 예: PER_TARGET/GLOBAL)',
+    example: 'PER_TARGET',
+  },
+  {
+    key: 'thresholdCount',
+    header: 'thresholdCount',
+    description: '임계값 도달 필요 횟수 (0 = 사용 안 함)',
+    example: 0,
+    transform: (raw) => {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수');
+      return n;
+    },
+  },
+  {
+    key: 'thresholdTarget',
+    header: 'thresholdTarget',
+    description: '임계 대상 코드 (선택)',
+  },
+  {
+    key: 'parentActionType',
+    header: 'parentActionType',
+    description: '상위 액션 코드 (선택, 계층 구조용)',
+  },
+  {
+    key: 'isActive',
+    header: 'isActive',
+    description: '활성 여부 (true/false/1/0, 기본 true)',
+    example: 'true',
+    example2: 'true',
+    transform: (raw) => {
+      const v = String(raw).toLowerCase().trim();
+      if (['true', '1', 'y', 'yes'].includes(v)) return true;
+      if (['false', '0', 'n', 'no'].includes(v)) return false;
+      throw new Error('true/false/1/0');
+    },
+  },
+  {
+    key: 'description',
+    header: 'description',
+    description: '정책 설명 (선택)',
+    example: '일반 게시글 작성 시 10P 지급',
+    example2: '리뷰 작성 시 20P 지급 (100자 이상)',
+  },
+  {
+    key: 'changeReason',
+    header: 'changeReason',
+    description: '변경 사유 (선택, 미지정 시 "신규 정책 CSV 일괄 등록")',
+    example: 'CSV 초기 세팅',
+    transform: (raw) => raw || '신규 정책 CSV 일괄 등록',
+  },
 ];
 
 const MODE_CREATE = 'CREATE';
@@ -76,11 +260,20 @@ export default function RewardPolicyTab() {
   const [submitting, setSubmitting] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
-  /* ── 변경 이력 패널 ── */
+  /* ── 변경 이력 패널 (기존 — 개별 정책 단위) ── */
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyTarget, setHistoryTarget] = useState(null);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  /*
+   * ── 전체 변경 이력 대시보드 모달 상태 (2026-04-09 P2-⑰ 신규) ──
+   *
+   * 기존 `historyOpen` 은 개별 정책(`historyTarget`) 의 이력만 조회하는 용도인 반면,
+   * 본 state 는 모든 정책의 변경 이력을 복합 필터로 통합 조회하는 대시보드 모달용.
+   * 두 기능은 공존하며, 운영자는 필요에 따라 개별/전체 뷰를 선택한다.
+   */
+  const [dashboardOpen, setDashboardOpen] = useState(false);
 
   const loadPolicies = useCallback(async () => {
     try {
@@ -237,6 +430,37 @@ export default function RewardPolicyTab() {
           <PrimaryButton onClick={openCreateModal}>
             <MdAdd size={16} /> 신규 등록
           </PrimaryButton>
+          {/*
+            전체 변경 이력 대시보드 — 2026-04-09 P2-⑰ 신규.
+            기존 행별 "이력" 버튼이 개별 정책 이력만 조회하는 반면, 본 버튼은 모든 정책의
+            변경 이력을 복합 필터로 통합 조회하는 대시보드 모달을 연다. 운영 감사 관점에서
+            "어떤 정책이 언제 누구에 의해 변경되었는가" 를 한 화면에서 파악한다.
+          */}
+          <HistoryDashboardButton
+            type="button"
+            onClick={() => setDashboardOpen(true)}
+            disabled={loading}
+            title="모든 정책의 변경 이력을 통합 조회"
+          >
+            <MdHistory size={16} />
+            전체 변경 이력
+          </HistoryDashboardButton>
+          {/*
+            CSV 대량 등록 — 2026-04-09 P2-⑬ 확장.
+            `createRewardPolicy()` 를 행별로 순차 호출. 중복 actionType 은 Backend 409 로
+            반환되어 실패 행 목록에 수집된다. 각 성공 행은 RewardPolicyHistory 에 자동 기록.
+            수정은 CSV 로 하지 않고 개별 수정 모달을 사용한다 (ChangeReason 수동 입력 권장).
+          */}
+          <CsvImportButton
+            label="CSV 가져오기"
+            columns={CSV_IMPORT_COLUMNS}
+            onRowImport={createRewardPolicy}
+            onComplete={(result) => {
+              if (result.succeeded > 0) loadPolicies();
+            }}
+            disabled={loading}
+            templateName="reward_policies"
+          />
           <IconButton onClick={loadPolicies} disabled={loading} title="새로고침">
             <MdRefresh size={16} />
           </IconButton>
@@ -557,6 +781,16 @@ export default function RewardPolicyTab() {
           </DialogBox>
         </Overlay>
       )}
+
+      {/*
+        전체 변경 이력 대시보드 모달 — 2026-04-09 P2-⑰.
+        dashboardOpen=true 일 때만 내부 렌더링. 모든 정책의 변경 이력을
+        복합 필터(policyId/changedBy/시간 범위)로 페이징 조회한다.
+      */}
+      <PolicyHistoryDashboardModal
+        isOpen={dashboardOpen}
+        onClose={() => setDashboardOpen(false)}
+      />
     </Container>
   );
 }
@@ -611,6 +845,35 @@ const PrimaryButton = styled.button`
   border-radius: 4px;
   &:hover:not(:disabled) { opacity: 0.9; }
   &:disabled { opacity: 0.5; }
+`;
+
+/**
+ * 전체 변경 이력 대시보드 버튼 — 2026-04-09 P2-⑰ 신규.
+ * primary outline 스타일로 "신규 등록" primary 필드와 시각적 구분.
+ * 운영 감사 관점의 조회 성격이므로 파괴적이지 않은 outline.
+ */
+const HistoryDashboardButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 14px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ theme }) => theme.colors.primary};
+  background: ${({ theme }) => theme.colors.bgCard};
+  border: 1px solid ${({ theme }) => theme.colors.primary};
+  border-radius: 4px;
+  transition: all ${({ theme }) => theme.transitions.fast};
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    background: ${({ theme }) => theme.colors.primaryLight};
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 `;
 const IconButton = styled.button`
   display: flex;

@@ -1,12 +1,34 @@
 /**
- * 사용자 상세 패널 컴포넌트.
+ * 사용자 상세 패널 컴포넌트 — 2026-04-09 P2-⑮ "사용자 360도 뷰" 확장.
  *
  * 우측 sticky 패널로 렌더링되며 다음 섹션으로 구성된다:
  * 1. 프로필 섹션: 닉네임, 이메일, 역할, 상태, 가입일
  * 2. 포인트 섹션: 잔액, 등급
  * 3. 활동 카운트: 게시글 수, 리뷰 수, 댓글 수
  * 4. 액션 버튼: 역할 변경 / 계정 정지 or 계정 복구
- * 5. 하단 미니 탭: 활동 이력 | 포인트 내역 | 결제 내역 (lazy 로딩)
+ * 5. 하단 미니 탭:
+ *    - **통합 타임라인** (2026-04-09 신규) — 5개 소스(활동/포인트/결제/제재/감사)를
+ *      병렬 조회하여 시간순 단일 피드로 통합 렌더링
+ *    - 활동 이력
+ *    - 포인트 내역
+ *    - 결제 내역
+ *
+ * ## 통합 타임라인 설계
+ *
+ * 기존에는 활동/포인트/결제 3개 탭이 각각 10건씩 분리 표시되어 "이 사용자에게
+ * 최근 무슨 일이 있었는가" 를 한눈에 파악하기 어려웠다. 통합 타임라인은 아래 5개
+ * 소스를 `Promise.allSettled` 로 병렬 조회한 뒤 정규화된 `TimelineEvent` 배열로
+ * 병합하고 `createdAt` 내림차순 정렬하여 최근 50건을 렌더링한다.
+ *
+ * 1. `fetchUserActivity` — 게시글/리뷰/댓글 작성 이력
+ * 2. `fetchUserPoints` — 포인트 변동 (획득/사용)
+ * 3. `fetchUserPayments` — 결제 주문
+ * 4. `fetchSuspensionHistory` — 계정 제재/복구 원장
+ * 5. `fetchAuditLogs({ targetType: 'USER', targetId: userId })` — 관리자가 이 사용자에게
+ *    가한 조치 (역할 변경/수동 포인트/이용권 발급 등). 2026-04-09 P2-⑮ 확장으로
+ *    Backend `searchByFilters()` 에 targetId 파라미터가 추가되어 정밀 조회 가능.
+ *
+ * 한쪽 API 실패는 나머지 소스 표시를 막지 않으며, 실패한 소스는 조용히 스킵한다.
  *
  * @param {Object}   props
  * @param {string}   props.userId     - 조회할 사용자 ID
@@ -22,13 +44,21 @@ import {
   MdBlock,
   MdCheckCircle,
   MdPerson,
+  MdTimeline,
+  MdChatBubbleOutline,
+  MdMonetizationOn,
+  MdPayment,
+  MdGavel,
+  MdAdminPanelSettings,
 } from 'react-icons/md';
 import {
   fetchUserDetail,
   fetchUserActivity,
   fetchUserPoints,
   fetchUserPayments,
+  fetchSuspensionHistory,
 } from '../api/usersApi';
+import { fetchAuditLogs } from '@/features/settings/api/settingsApi';
 import StatusBadge from '@/shared/components/StatusBadge';
 import UserActionModal from './UserActionModal';
 
@@ -62,12 +92,46 @@ const GRADE_BADGE = {
   PLATINUM: { status: 'success', label: 'PLATINUM' },
 };
 
-/** 하단 미니 탭 정의 */
+/**
+ * 하단 미니 탭 정의.
+ * 2026-04-09 P2-⑮: "통합 타임라인" 첫 번째 위치에 추가.
+ */
 const MINI_TABS = [
+  { id: 'timeline', label: '통합 타임라인' },
   { id: 'activity', label: '활동 이력' },
   { id: 'points',   label: '포인트 내역' },
   { id: 'payments', label: '결제 내역' },
 ];
+
+/**
+ * 통합 타임라인에서 가져올 소스별 최대 건수.
+ * 5 소스 × 20건 = 최대 100건 병합 → 정렬 후 상위 50건만 렌더링.
+ */
+const TIMELINE_PER_SOURCE = 20;
+const TIMELINE_MAX_RENDER = 50;
+
+/**
+ * 타임라인 소스 별 시각화 메타 — 아이콘/색상/라벨.
+ * 렌더링 시 {@code source} 값으로 lookup 하여 일관된 UI 제공.
+ */
+const TIMELINE_SOURCE_META = {
+  activity:   { label: '활동',     color: '#3b82f6', icon: MdChatBubbleOutline },
+  point:      { label: '포인트',   color: '#10b981', icon: MdMonetizationOn },
+  payment:    { label: '결제',     color: '#f59e0b', icon: MdPayment },
+  suspension: { label: '제재',     color: '#ef4444', icon: MdGavel },
+  audit:      { label: '관리조치', color: '#8b5cf6', icon: MdAdminPanelSettings },
+};
+
+/**
+ * 금액 포맷 — 천 단위 콤마, 양수는 "+" prefix.
+ * 포인트 변동 이벤트에서 사용.
+ */
+function formatSignedAmount(n, suffix = 'P') {
+  if (n == null || Number.isNaN(Number(n))) return '-';
+  const num = Number(n);
+  const sign = num > 0 ? '+' : '';
+  return `${sign}${num.toLocaleString()}${suffix}`;
+}
 
 export default function UserDetailPanel({ userId, onClose, onRefresh }) {
   /* ── 사용자 상세 상태 ── */
@@ -76,8 +140,8 @@ export default function UserDetailPanel({ userId, onClose, onRefresh }) {
   const [detailError, setDetailError]     = useState(null);
 
   /* ── 미니 탭 상태 ── */
-  /** 현재 활성 미니 탭 ID */
-  const [activeTab, setActiveTab] = useState('activity');
+  /** 현재 활성 미니 탭 ID — 2026-04-09 P2-⑮: 기본값을 'timeline' 으로 변경 */
+  const [activeTab, setActiveTab] = useState('timeline');
   /** 탭별 데이터 캐시: { activity: [], points: [], payments: [] } */
   const [tabData, setTabData]     = useState({});
   /** 탭별 로딩 상태 */
@@ -104,7 +168,8 @@ export default function UserDetailPanel({ userId, onClose, onRefresh }) {
       // 탭 캐시도 초기화 (다른 사용자 선택 시 오염 방지)
       setTabData({});
       setLoadedTabs(new Set());
-      setActiveTab('activity');
+      /* 2026-04-09 P2-⑮: 사용자 전환 시 통합 타임라인을 기본 첫 화면으로 복귀 */
+      setActiveTab('timeline');
       const result = await fetchUserDetail(userId);
       setDetail(result);
     } catch (err) {
@@ -120,7 +185,7 @@ export default function UserDetailPanel({ userId, onClose, onRefresh }) {
    * 미니 탭 데이터 로딩.
    * 이미 로드된 탭은 재요청하지 않는다 (lazy 캐싱).
    *
-   * @param {string} tabId - 'activity' | 'points' | 'payments'
+   * @param {string} tabId - 'timeline' | 'activity' | 'points' | 'payments'
    */
   const loadTabData = useCallback(async (tabId) => {
     if (!userId || loadedTabs.has(tabId)) return;
@@ -129,17 +194,143 @@ export default function UserDetailPanel({ userId, onClose, onRefresh }) {
       setTabLoading((prev) => ({ ...prev, [tabId]: true }));
       setTabError((prev) => ({ ...prev, [tabId]: null }));
 
-      let result;
-      if (tabId === 'activity') {
-        result = await fetchUserActivity(userId, { page: 0, size: 10 });
+      let items;
+
+      if (tabId === 'timeline') {
+        /*
+         * 통합 타임라인 — 2026-04-09 P2-⑮ 신규.
+         *
+         * 5개 소스를 Promise.allSettled 로 병렬 호출하여 한쪽 실패가 나머지를 막지
+         * 않도록 한다. 각 결과를 normalize...() 헬퍼로 TimelineEvent 배열로 변환한 뒤
+         * 하나의 배열로 병합하여 createdAt 내림차순 정렬, 최근 TIMELINE_MAX_RENDER 건만
+         * 반환한다.
+         */
+        const [
+          activityResult,
+          pointsResult,
+          paymentsResult,
+          suspensionResult,
+          auditResult,
+        ] = await Promise.allSettled([
+          fetchUserActivity(userId, { page: 0, size: TIMELINE_PER_SOURCE }),
+          fetchUserPoints(userId,   { page: 0, size: TIMELINE_PER_SOURCE }),
+          fetchUserPayments(userId, { page: 0, size: TIMELINE_PER_SOURCE }),
+          fetchSuspensionHistory(userId),
+          /* targetType=USER + targetId=userId 필터로 "이 사용자에게 가해진 관리 조치" 만 조회.
+           * Backend searchByFilters() 가 2026-04-09 P2-⑮ 확장으로 targetId 파라미터를 받는다. */
+          fetchAuditLogs({
+            targetType: 'USER',
+            targetId:   userId,
+            page:       0,
+            size:       TIMELINE_PER_SOURCE,
+          }),
+        ]);
+
+        const events = [];
+
+        /* ── 활동 이력 ── */
+        if (activityResult.status === 'fulfilled') {
+          const raw = activityResult.value;
+          const arr = Array.isArray(raw?.content) ? raw.content : (Array.isArray(raw) ? raw : []);
+          arr.forEach((it, idx) => {
+            const type = it.type ?? it.activityType ?? 'ACTIVITY';
+            events.push({
+              id: `activity-${it.id ?? idx}-${it.createdAt ?? idx}`,
+              source: 'activity',
+              title: type,
+              description: it.description ?? it.content ?? '-',
+              createdAt: it.createdAt,
+            });
+          });
+        }
+
+        /* ── 포인트 이력 ── */
+        if (pointsResult.status === 'fulfilled') {
+          const raw = pointsResult.value;
+          const arr = Array.isArray(raw?.content) ? raw.content : (Array.isArray(raw) ? raw : []);
+          arr.forEach((it, idx) => {
+            /* 포인트 변동량 필드는 백엔드에서 pointChange 로 내려오지만, 일부 레거시
+             * 응답에서는 amount/changeAmount 로도 확인되므로 안전하게 fallback 한다. */
+            const amount = it.pointChange ?? it.amount ?? it.changeAmount ?? 0;
+            const typeLabel = it.pointType ?? it.type ?? '변동';
+            events.push({
+              id: `point-${it.id ?? it.pointsHistoryId ?? idx}-${it.createdAt ?? idx}`,
+              source: 'point',
+              title: `${typeLabel} ${formatSignedAmount(amount)}`,
+              description: it.description ?? it.reason ?? '-',
+              createdAt: it.createdAt,
+            });
+          });
+        }
+
+        /* ── 결제 이력 ── */
+        if (paymentsResult.status === 'fulfilled') {
+          const raw = paymentsResult.value;
+          const arr = Array.isArray(raw?.content) ? raw.content : (Array.isArray(raw) ? raw : []);
+          arr.forEach((it, idx) => {
+            const amount = it.amount ?? 0;
+            const orderType = it.orderType ?? it.type ?? '결제';
+            const status = it.status ?? '';
+            events.push({
+              id: `payment-${it.paymentOrderId ?? it.orderId ?? it.id ?? idx}`,
+              source: 'payment',
+              title: `${orderType} ${Number(amount).toLocaleString()}원${status ? ` · ${status}` : ''}`,
+              description: it.description ?? it.productName ?? '-',
+              createdAt: it.createdAt,
+            });
+          });
+        }
+
+        /* ── 제재 이력 ── */
+        if (suspensionResult.status === 'fulfilled') {
+          const arr = Array.isArray(suspensionResult.value) ? suspensionResult.value : [];
+          arr.forEach((it, idx) => {
+            const statusLabel = it.status === 'SUSPENDED' ? '계정 정지' : '계정 복구';
+            const until = it.suspendedUntil ? ` · ~${formatDate(it.suspendedUntil)}` : '';
+            events.push({
+              id: `suspension-${it.userStatusId ?? it.id ?? idx}`,
+              source: 'suspension',
+              title: `${statusLabel}${until}`,
+              description: it.suspendReason ?? '-',
+              createdAt: it.createdAt ?? it.suspendedAt,
+            });
+          });
+        }
+
+        /* ── 감사 로그 (관리자가 이 사용자에게 가한 조치) ── */
+        if (auditResult.status === 'fulfilled') {
+          const raw = auditResult.value;
+          const arr = Array.isArray(raw?.content) ? raw.content : (Array.isArray(raw) ? raw : []);
+          arr.forEach((it, idx) => {
+            events.push({
+              id: `audit-${it.id ?? idx}`,
+              source: 'audit',
+              title: it.actionType ?? '관리 조치',
+              description: it.description ?? '-',
+              createdAt: it.createdAt,
+            });
+          });
+        }
+
+        /* 시간순 정렬 (내림차순) + 최신 N건만 */
+        events.sort((a, b) => {
+          const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return tb - ta;
+        });
+        items = events.slice(0, TIMELINE_MAX_RENDER);
+      } else if (tabId === 'activity') {
+        const result = await fetchUserActivity(userId, { page: 0, size: 10 });
+        items = result?.content ?? result ?? [];
       } else if (tabId === 'points') {
-        result = await fetchUserPoints(userId, { page: 0, size: 10 });
+        const result = await fetchUserPoints(userId, { page: 0, size: 10 });
+        items = result?.content ?? result ?? [];
       } else if (tabId === 'payments') {
-        result = await fetchUserPayments(userId, { page: 0, size: 10 });
+        const result = await fetchUserPayments(userId, { page: 0, size: 10 });
+        items = result?.content ?? result ?? [];
       }
 
-      const items = result?.content ?? result ?? [];
-      setTabData((prev) => ({ ...prev, [tabId]: items }));
+      setTabData((prev) => ({ ...prev, [tabId]: items ?? [] }));
       setLoadedTabs((prev) => new Set([...prev, tabId]));
     } catch (err) {
       setTabError((prev) => ({
@@ -160,10 +351,13 @@ export default function UserDetailPanel({ userId, onClose, onRefresh }) {
     loadTabData(tabId);
   }
 
-  /* 컴포넌트 마운트 시 첫 번째 탭(activity) 자동 로드 */
+  /*
+   * 컴포넌트 마운트 시 첫 번째 탭(timeline) 자동 로드 — 2026-04-09 P2-⑮ 변경.
+   * 통합 타임라인이 기본 첫 화면이므로 여기서 자동 호출한다.
+   */
   useEffect(() => {
-    if (userId && !loadedTabs.has('activity')) {
-      loadTabData('activity');
+    if (userId && !loadedTabs.has('timeline')) {
+      loadTabData('timeline');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
@@ -380,6 +574,44 @@ export default function UserDetailPanel({ userId, onClose, onRefresh }) {
                 <TabErrorMsg>{tabError[activeTab]}</TabErrorMsg>
               ) : !tabData[activeTab] || tabData[activeTab].length === 0 ? (
                 <TabEmpty>내역이 없습니다.</TabEmpty>
+              ) : activeTab === 'timeline' ? (
+                /*
+                 * 통합 타임라인 렌더링 — 2026-04-09 P2-⑮ 신규.
+                 *
+                 * 각 이벤트는 source 에 따라 아이콘/색상이 결정되며, 좌측에 컬러 dot 과
+                 * 세로 연결선이 표시되어 시간순 흐름을 시각화한다. 하단에 표시된 총 건수는
+                 * TIMELINE_MAX_RENDER 에 의해 상한이 있음을 사용자에게 명시적으로 알린다.
+                 */
+                <TimelineList>
+                  {tabData.timeline.map((event) => {
+                    const meta = TIMELINE_SOURCE_META[event.source] ?? TIMELINE_SOURCE_META.activity;
+                    const IconComp = meta.icon;
+                    return (
+                      <TimelineItem key={event.id}>
+                        <TimelineIconWrap $color={meta.color}>
+                          <IconComp size={14} />
+                        </TimelineIconWrap>
+                        <TimelineBody>
+                          <TimelineHeader>
+                            <TimelineSourceBadge $color={meta.color}>
+                              {meta.label}
+                            </TimelineSourceBadge>
+                            <TimelineTitle>{event.title}</TimelineTitle>
+                          </TimelineHeader>
+                          {event.description && event.description !== '-' && (
+                            <TimelineDesc title={event.description}>
+                              {event.description}
+                            </TimelineDesc>
+                          )}
+                          <TimelineDate>{formatDate(event.createdAt)}</TimelineDate>
+                        </TimelineBody>
+                      </TimelineItem>
+                    );
+                  })}
+                  <TimelineFooter>
+                    최근 {tabData.timeline.length}건 표시 (최대 {TIMELINE_MAX_RENDER}건)
+                  </TimelineFooter>
+                </TimelineList>
               ) : (
                 <TabList>
                   {tabData[activeTab].map((item, idx) => (
@@ -782,4 +1014,138 @@ const TabItemDate = styled.span`
   color: ${({ theme }) => theme.colors.textMuted};
   font-family: ${({ theme }) => theme.fonts.mono};
   white-space: nowrap;
+`;
+
+// ──────────────────────────────────────────────
+// 통합 타임라인 styled-components (2026-04-09 P2-⑮ 신규)
+// ──────────────────────────────────────────────
+
+/**
+ * 타임라인 리스트 컨테이너.
+ * 좌측 아이콘 컬럼과 우측 본문 컬럼을 flex 로 배치하며,
+ * 각 아이템 사이 세로 연결선은 TimelineItem 의 border-left 로 구현한다.
+ */
+const TimelineList = styled.ul`
+  list-style: none;
+  margin: 0;
+  padding: 0;
+`;
+
+/**
+ * 타임라인 개별 아이템.
+ * - 좌측: 컬러 dot (아이콘 포함)
+ * - 우측: 제목/설명/시간
+ * - 마지막 아이템을 제외하고는 세로 연결선이 dot 아래로 내려와 다음 아이템과 이어진다.
+ */
+const TimelineItem = styled.li`
+  display: flex;
+  align-items: flex-start;
+  gap: ${({ theme }) => theme.spacing.md};
+  padding-bottom: ${({ theme }) => theme.spacing.md};
+  position: relative;
+
+  /*
+   * 마지막이 아닌 경우 dot 아래로 세로 연결선 그리기 — 아이콘 래퍼의 중심 X=12px에
+   * 맞춰 절대 위치로 얇은 회색 선을 그린다.
+   */
+  &:not(:last-of-type)::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 24px;
+    bottom: 0;
+    width: 2px;
+    background: ${({ theme }) => theme.colors.borderLight};
+  }
+`;
+
+/**
+ * 타임라인 아이콘 래퍼 — 소스별 컬러 배경의 원형.
+ * z-index 로 연결선보다 앞에 표시되어 dot 이 선 위에 얹혀 보인다.
+ */
+const TimelineIconWrap = styled.div`
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: ${({ $color }) => $color};
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 0 0 3px ${({ theme }) => theme.colors.bgCard};
+`;
+
+/** 타임라인 본문 — 제목/설명/시간 세로 배치 */
+const TimelineBody = styled.div`
+  flex: 1;
+  min-width: 0;
+`;
+
+/** 타임라인 헤더 행 — 소스 배지 + 제목 */
+const TimelineHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+`;
+
+/** 소스 라벨 배지 (활동/포인트/결제/제재/관리조치) */
+const TimelineSourceBadge = styled.span`
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #ffffff;
+  background: ${({ $color }) => $color};
+  border-radius: 3px;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+`;
+
+/** 타임라인 이벤트 제목 */
+const TimelineTitle = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+`;
+
+/** 타임라인 이벤트 설명 — 120자 truncate, 전체 내용은 title hover */
+const TimelineDesc = styled.p`
+  margin-top: 2px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-all;
+`;
+
+/** 타임라인 이벤트 시각 */
+const TimelineDate = styled.div`
+  margin-top: 3px;
+  font-size: 10px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-family: ${({ theme }) => theme.fonts.mono};
+`;
+
+/** 타임라인 하단 안내 — "최근 N건 표시" */
+const TimelineFooter = styled.li`
+  list-style: none;
+  margin-top: ${({ theme }) => theme.spacing.xs};
+  padding-top: ${({ theme }) => theme.spacing.sm};
+  border-top: 1px dashed ${({ theme }) => theme.colors.borderLight};
+  font-size: 10px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  text-align: center;
 `;

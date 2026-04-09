@@ -185,6 +185,28 @@ export function fetchPointItems() {
 }
 
 /**
+ * 포인트 아이템 신규 등록 — 2026-04-09 P0 누락분 보강.
+ *
+ * Backend `AdminPaymentService.createPointItem()` + `POST /api/v1/admin/point/items`
+ * 엔드포인트는 이미 구현되어 있었으나 Frontend 호출부가 없어 관리자가 UI 에서
+ * 신규 포인트 상품을 추가할 수 없었다. 본 함수는 해당 API 를 연결한다.
+ *
+ * UI 연결(신규 등록 모달)은 후속 작업으로 분리되어 있으며, 그 시점까지는
+ * 개발자 콘솔/테스트 스크립트에서 직접 호출할 수 있다.
+ *
+ * @param {Object} data                   - 포인트 아이템 등록 요청
+ * @param {string} data.itemName          - 아이템 이름 (필수)
+ * @param {string} [data.itemDescription] - 설명 (선택)
+ * @param {number} data.itemPrice         - 가격 (필수, 원 단위)
+ * @param {string} [data.itemCategory]    - 카테고리 (미지정 시 "general")
+ * @param {boolean} [data.isActive]       - 활성화 여부 (기본 true)
+ * @returns {Promise<Object>} 등록된 아이템 응답 DTO
+ */
+export function createPointItem(data) {
+  return backendApi.post(PAYMENT_ADMIN_ENDPOINTS.POINT_ITEMS, data);
+}
+
+/**
  * 포인트 아이템 정보 수정.
  * @param {string|number} id  - 아이템 ID
  * @param {Object} data       - 수정할 데이터 (name, price, description, active 등)

@@ -17,12 +17,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { MdRefresh, MdAdd, MdEdit, MdDelete, MdSearch } from 'react-icons/md';
+/* 2026-04-08: movieApi.js(backendApi) → dataApi.js(agentApi) 로 통합.
+ * 단일 진실 원본 원칙에 따라 영화 CRUD 는 Agent(FastAPI admin_data.py)가 전담한다. */
 import {
   fetchMovies,
   createMovie,
   updateMovie,
   deleteMovie,
-} from '../api/movieApi';
+} from '../api/dataApi';
+/* 2026-04-09 P2-⑬: 대량 CSV 등록 UI — 순수 유틸 + 재사용 버튼 컴포넌트 */
+import CsvImportButton from '@/shared/components/CsvImportButton';
 
 /** 페이지 크기 */
 const PAGE_SIZE = 10;
@@ -30,6 +34,128 @@ const PAGE_SIZE = 10;
 /** 모달 모드 */
 const MODE_CREATE = 'CREATE';
 const MODE_EDIT = 'EDIT';
+
+/**
+ * CSV 대량 등록 컬럼 정의 — 2026-04-09 P2-⑬.
+ *
+ * 각 컬럼은 CSV 헤더 이름과 Backend `createMovie` payload 의 필드 키를 매핑한다.
+ * `required` 는 CSV 행 검증에만 쓰이고, `transform` 은 문자열 → 적절한 타입 변환을 담당.
+ *
+ * ## CSV 파일 작성 규칙
+ * - 1행: 헤더 (아래 header 값과 정확히 일치해야 함)
+ * - movieId, title 만 필수. 나머지는 생략 가능
+ * - 숫자 필드(tmdbId/releaseYear/runtime/rating)는 빈 값이면 전송 안 함
+ * - JSON 필드(genres): `["액션","SF"]` 형식 (선택, 잘못된 JSON 이면 행 에러)
+ * - 불리언 필드(adult): `true`/`false`/`1`/`0` 모두 허용
+ *
+ * ## Transform 에러 정책
+ * 변환 실패 시 throw 하면 `rowToPayload()` 가 잡아서 해당 행을 실패로 기록한다.
+ */
+const CSV_IMPORT_COLUMNS = [
+  {
+    key: 'movieId', header: 'movieId', required: true,
+    description: '고유 영화 ID (영문/숫자/언더스코어)',
+    example: 'm_admin_001', example2: 'm_admin_002',
+  },
+  {
+    key: 'title', header: 'title', required: true,
+    description: '제목 (한국어)',
+    example: '예시 영화 하나', example2: '예시 영화 둘',
+  },
+  {
+    key: 'titleEn', header: 'titleEn', description: '원제/영문 제목',
+    example: 'Sample Movie One', example2: 'Sample Movie Two',
+  },
+  {
+    key: 'overview', header: 'overview', description: '줄거리/요약',
+    example: '한 줄로 쓴 샘플 줄거리입니다.', example2: '',
+  },
+  {
+    key: 'tmdbId',
+    header: 'tmdbId',
+    description: 'TMDB 정수 ID (선택)',
+    example: 12345,
+    transform: (raw) => {
+      const n = Number(raw);
+      if (!Number.isInteger(n)) throw new Error('정수 형식이 아닙니다');
+      return n;
+    },
+  },
+  {
+    key: 'genres',
+    header: 'genres',
+    description: 'JSON 배열 (예: ["액션","SF"])',
+    example: '["액션","SF"]', example2: '["드라마"]',
+    transform: (raw) => {
+      try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) throw new Error('JSON 배열이어야 합니다');
+        return parsed;
+      } catch (err) {
+        throw new Error(err.message.startsWith('JSON') ? err.message : `JSON 파싱 실패: ${err.message}`);
+      }
+    },
+  },
+  {
+    key: 'director', header: 'director', description: '감독명',
+    example: '홍길동', example2: '김감독',
+  },
+  {
+    key: 'releaseYear',
+    header: 'releaseYear',
+    description: '개봉 연도 (정수, 예: 2024)',
+    example: 2024, example2: 2023,
+    transform: (raw) => {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 1800 || n > 2100) throw new Error('1800~2100 사이 정수');
+      return n;
+    },
+  },
+  {
+    key: 'releaseDate', header: 'releaseDate', description: 'YYYY-MM-DD',
+    example: '2024-05-15',
+  },
+  {
+    key: 'runtime',
+    header: 'runtime',
+    description: '상영 시간 (분, 정수)',
+    example: 120, example2: 95,
+    transform: (raw) => {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수');
+      return n;
+    },
+  },
+  {
+    key: 'rating',
+    header: 'rating',
+    description: '평점 0.0~10.0',
+    example: 8.5, example2: 7.2,
+    transform: (raw) => {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0 || n > 10) throw new Error('0.0~10.0 범위');
+      return n;
+    },
+  },
+  { key: 'posterPath',    header: 'posterPath',    description: '포스터 URL', example: 'https://example.com/poster.jpg' },
+  { key: 'certification', header: 'certification', description: '관람등급 (전체/12/15/청불)', example: '15', example2: '전체' },
+  { key: 'trailerUrl',    header: 'trailerUrl',    description: '트레일러 URL' },
+  { key: 'tagline',       header: 'tagline',       description: '한 줄 소개', example: '잊지 못할 이야기' },
+  { key: 'originalLanguage', header: 'originalLanguage', description: 'ISO 639-1 (ko/en/ja...)', example: 'ko', example2: 'en' },
+  { key: 'backdropPath',  header: 'backdropPath',  description: '배경 이미지 URL' },
+  {
+    key: 'adult',
+    header: 'adult',
+    description: '성인 콘텐츠 여부 (true/false/1/0)',
+    example: 'false', example2: 'false',
+    transform: (raw) => {
+      const v = String(raw).toLowerCase().trim();
+      if (['true', '1', 'y', 'yes'].includes(v)) return true;
+      if (['false', '0', 'n', 'no', ''].includes(v)) return false;
+      throw new Error('true/false/1/0 중 하나여야 합니다');
+    },
+  },
+];
 
 /** 빈 폼 초기값 */
 const EMPTY_FORM = {
@@ -251,6 +377,22 @@ export default function MovieMasterTab() {
           <PrimaryButton onClick={openCreateModal}>
             <MdAdd size={16} /> 신규 등록
           </PrimaryButton>
+          {/*
+            CSV 대량 등록 — 2026-04-09 P2-⑬ 신규.
+            각 행을 createMovie() 로 순차 호출하며, 완료 후 목록 재조회.
+            파싱 실패/API 실패는 모달 내부에서 행별로 집계 표시된다.
+          */}
+          <CsvImportButton
+            label="CSV 가져오기"
+            columns={CSV_IMPORT_COLUMNS}
+            onRowImport={createMovie}
+            onComplete={(result) => {
+              /* 하나라도 성공했으면 목록 재조회 */
+              if (result.succeeded > 0) loadMovies();
+            }}
+            disabled={loading}
+            templateName="movies"
+          />
           <IconButton onClick={loadMovies} disabled={loading} title="새로고침">
             <MdRefresh size={16} />
           </IconButton>

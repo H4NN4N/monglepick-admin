@@ -21,6 +21,8 @@ import {
   updateAchievement,
   updateAchievementActive,
 } from '../api/achievementApi';
+/* 2026-04-09 P2-⑬ 확장: 대량 CSV 등록 인프라 재사용 */
+import CsvImportButton from '@/shared/components/CsvImportButton';
 
 /** 페이지 크기 */
 const PAGE_SIZE = 10;
@@ -32,6 +34,95 @@ const CATEGORY_OPTIONS = [
   { value: 'SOCIAL', label: '소셜 (SOCIAL)' },
   { value: 'COLLECTION', label: '수집 (COLLECTION)' },
   { value: 'CHALLENGE', label: '도전 (CHALLENGE)' },
+];
+
+/**
+ * CSV 대량 등록 컬럼 정의 — 2026-04-09 P2-⑬.
+ *
+ * 기존 `createAchievement()` payload 와 필드명 1:1 일치. 기존 폼의 "빈 값 → null" 규칙을
+ * transform 에서 동일하게 재현:
+ * - `requiredCount`: 빈 값이면 null (쿼리 조건 없음), 값이 있으면 양수 정수
+ * - `rewardPoints`: 빈 값이면 0 (기본값)
+ * - `category`: 드롭다운 4종 중 하나 또는 빈 값 (미분류)
+ *
+ * 중복 `achievementCode` 는 Backend 에서 409 로 반환되어 실패 행 목록에 수집된다.
+ *
+ * ## 필수
+ * - `achievementCode`: 시스템 식별자 (영문 대문자/언더스코어 권장)
+ * - `achievementName`: 사용자 노출용 표시명
+ *
+ * ## 선택
+ * - 나머지 5개 필드
+ */
+const CSV_IMPORT_COLUMNS = [
+  {
+    key: 'achievementCode',
+    header: 'achievementCode',
+    required: true,
+    description: '시스템 식별자 (예: FIRST_REVIEW, WATCH_100)',
+    example: 'FIRST_REVIEW',
+    example2: 'WATCH_100',
+  },
+  {
+    key: 'achievementName',
+    header: 'achievementName',
+    required: true,
+    description: '사용자 노출 표시명 (예: 첫 리뷰 작성)',
+    example: '첫 리뷰 작성',
+    example2: '100편 감상 달성',
+  },
+  {
+    key: 'description',
+    header: 'description',
+    description: '업적 설명 (선택)',
+    example: '첫 리뷰를 작성하면 획득',
+    example2: '영화 100편 감상 시 획득',
+  },
+  {
+    key: 'requiredCount',
+    header: 'requiredCount',
+    description: '달성 필요 횟수 (정수, 빈 값이면 null)',
+    example: 1,
+    example2: 100,
+    transform: (raw) => {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수여야 합니다');
+      return n;
+    },
+  },
+  {
+    key: 'rewardPoints',
+    header: 'rewardPoints',
+    description: '달성 보상 포인트 (정수, 기본 0)',
+    example: 50,
+    example2: 500,
+    transform: (raw) => {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수여야 합니다');
+      return n;
+    },
+  },
+  {
+    key: 'iconUrl',
+    header: 'iconUrl',
+    description: '아이콘 이미지 URL (선택)',
+    example: 'https://example.com/icons/first-review.svg',
+  },
+  {
+    key: 'category',
+    header: 'category',
+    description: 'VIEWING / SOCIAL / COLLECTION / CHALLENGE 중 하나 (선택)',
+    example: 'SOCIAL',
+    example2: 'VIEWING',
+    transform: (raw) => {
+      const allowed = ['VIEWING', 'SOCIAL', 'COLLECTION', 'CHALLENGE'];
+      const upper = String(raw).toUpperCase();
+      if (!allowed.includes(upper)) {
+        throw new Error(`허용값: ${allowed.join(', ')}`);
+      }
+      return upper;
+    },
+  },
 ];
 
 /** 모달 모드 */
@@ -177,6 +268,21 @@ export default function AchievementMasterTab() {
           <PrimaryButton onClick={openCreateModal}>
             <MdAdd size={16} /> 신규 등록
           </PrimaryButton>
+          {/*
+            CSV 대량 등록 — 2026-04-09 P2-⑬ 확장.
+            `createAchievement()` 를 행별로 순차 호출. 중복 achievementCode 는
+            Backend 409 로 반환되어 실패 행 목록에 수집된다.
+          */}
+          <CsvImportButton
+            label="CSV 가져오기"
+            columns={CSV_IMPORT_COLUMNS}
+            onRowImport={createAchievement}
+            onComplete={(result) => {
+              if (result.succeeded > 0) loadAchievements();
+            }}
+            disabled={loading}
+            templateName="achievements"
+          />
           <IconButton onClick={loadAchievements} disabled={loading} title="새로고침">
             <MdRefresh size={16} />
           </IconButton>

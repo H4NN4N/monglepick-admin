@@ -90,6 +90,24 @@ export default function QuizManagementTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  /*
+   * ── 서버 사이드 복합 필터 (2026-04-09 P1-⑫ 전역 검색 승급) ──
+   *
+   * 이 파일의 최초 MVP (2026-04-09 오전) 는 클라이언트 측 `filteredQuizzes` 로 현재
+   * 페이지(10건) 내에서만 필터링했으나, 같은 날 Backend `AdminQuizRepository.searchByFilters()`
+   * JPQL 을 추가하여 DB 전역 검색으로 승급되었다.
+   *
+   * state 이름과 UI 는 유지하고 `loadQuizzes()` 의 params 객체에 직접 전달한다.
+   * 클라이언트 필터링(`filteredQuizzes`) 은 제거되었고, `quizzes` 배열을 그대로 렌더링한다.
+   * 필터 변경 시 `page` 를 0 으로 리셋하여 전역 검색 결과의 첫 페이지가 표시되도록 한다.
+   */
+  const [movieIdFilter, setMovieIdFilter] = useState('');
+  const [keywordFilter, setKeywordFilter] = useState('');
+  const [fromDateFilter, setFromDateFilter] = useState('');
+  const [toDateFilter, setToDateFilter] = useState('');
+  /** 전역 검색 결과 총 건수 — UI 상태 라벨에 표시 */
+  const [totalElements, setTotalElements] = useState(0);
+
   /* ── 모달 상태 ── */
   const [modalMode, setModalMode] = useState(null);
   const [editTargetId, setEditTargetId] = useState(null);
@@ -99,22 +117,55 @@ export default function QuizManagementTab() {
   /* ── 작업 진행 상태 ── */
   const [busyId, setBusyId] = useState(null);
 
-  /** 목록 조회 */
+  /**
+   * 목록 조회 — 2026-04-09 P1-⑫ 서버 전역 검색으로 승급.
+   *
+   * 모든 필터 state 를 params 에 직접 실어 Backend 로 전달한다. 빈 문자열/빈 값은
+   * 포함하지 않아 axios URLSearchParams 에 나타나지 않으며, Backend 에서는
+   * `@RequestParam(required=false)` 로 null 수신하여 JPQL `:param IS NULL` 조건이
+   * 활성화된다.
+   */
   const loadQuizzes = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const params = { page, size: PAGE_SIZE };
       if (statusFilter) params.status = statusFilter;
+      if (movieIdFilter.trim()) params.movieId = movieIdFilter.trim();
+      if (keywordFilter.trim()) params.keyword = keywordFilter.trim();
+      if (fromDateFilter) params.fromDate = fromDateFilter;
+      if (toDateFilter)   params.toDate   = toDateFilter;
+
       const result = await fetchQuizzes(params);
       setQuizzes(result?.content ?? []);
       setTotalPages(result?.totalPages ?? 0);
+      setTotalElements(result?.totalElements ?? 0);
     } catch (err) {
       setError(err.message || '조회 실패');
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter]);
+  }, [page, statusFilter, movieIdFilter, keywordFilter, fromDateFilter, toDateFilter]);
+
+  // ──────────────────────────────────────────────
+  // 추가 필터 상태 헬퍼 (2026-04-09 P1-⑫ 전역 검색)
+  // ──────────────────────────────────────────────
+
+  /** status 외 추가 필터가 하나라도 적용되어 있는지 */
+  const hasExtraFilter =
+    !!movieIdFilter.trim() ||
+    !!keywordFilter.trim() ||
+    !!fromDateFilter ||
+    !!toDateFilter;
+
+  /** 추가 필터 전체 초기화 (status 는 별도 드롭다운이므로 유지) */
+  function handleClearExtraFilters() {
+    setMovieIdFilter('');
+    setKeywordFilter('');
+    setFromDateFilter('');
+    setToDateFilter('');
+    setPage(0);
+  }
 
   useEffect(() => {
     loadQuizzes();
@@ -236,7 +287,7 @@ export default function QuizManagementTab() {
 
   return (
     <Container>
-      {/* ── 툴바 ── */}
+      {/* ── 툴바 (서버 필터 + 액션 버튼) ── */}
       <Toolbar>
         <ToolbarLeft>
           <ToolbarTitle>퀴즈 관리</ToolbarTitle>
@@ -256,11 +307,67 @@ export default function QuizManagementTab() {
         </ToolbarRight>
       </Toolbar>
 
+      {/*
+        복합 필터 바 — 2026-04-09 P1-⑫ (전역 검색 승급).
+        최초 MVP 는 클라이언트 측 filter 였으나, 같은 날 Backend `searchByFilters()` JPQL 추가로
+        서버 전역 검색으로 승급되었다. 각 입력의 onChange 에서 `setPage(0)` 으로 첫 페이지 리셋.
+        styled-components 이름(`ClientFilterBar` 등)은 호환성 유지 위해 그대로 둔다.
+      */}
+      <ClientFilterBar>
+        <ClientFilterInput
+          type="text"
+          value={movieIdFilter}
+          onChange={(e) => { setMovieIdFilter(e.target.value); setPage(0); }}
+          placeholder="영화 ID (부분 일치)"
+          maxLength={50}
+        />
+        <ClientFilterInput
+          type="text"
+          value={keywordFilter}
+          onChange={(e) => { setKeywordFilter(e.target.value); setPage(0); }}
+          placeholder="문제/정답/해설 키워드"
+          maxLength={100}
+          $flex
+        />
+        <ClientDateGroup>
+          <ClientDateLabel>출제일</ClientDateLabel>
+          <ClientFilterDate
+            type="date"
+            value={fromDateFilter}
+            onChange={(e) => { setFromDateFilter(e.target.value); setPage(0); }}
+            max={toDateFilter || undefined}
+            title="시작 출제일 (inclusive)"
+          />
+          <ClientDateSep>~</ClientDateSep>
+          <ClientFilterDate
+            type="date"
+            value={toDateFilter}
+            onChange={(e) => { setToDateFilter(e.target.value); setPage(0); }}
+            min={fromDateFilter || undefined}
+            title="종료 출제일 (inclusive)"
+          />
+        </ClientDateGroup>
+        {hasExtraFilter && (
+          <ClientFilterResetButton type="button" onClick={handleClearExtraFilters}>
+            필터 초기화
+          </ClientFilterResetButton>
+        )}
+      </ClientFilterBar>
+
       {/* ── 안내 ── */}
       <HelperText>
         <strong>상태 전이:</strong> PENDING→APPROVED/REJECTED, APPROVED→PUBLISHED/REJECTED,
         REJECTED→PENDING(재검수), PUBLISHED→REJECTED(긴급 회수).
         <strong> 삭제는 PENDING/REJECTED 상태만 가능</strong>합니다.
+        {hasExtraFilter && (
+          <>
+            {' '}
+            <em>
+              ※ 영화 ID / 키워드 / 출제일 필터는 <strong>DB 전역 검색</strong>으로
+              적용됩니다 (총 {totalElements.toLocaleString()}건).
+            </em>
+          </>
+        )}
       </HelperText>
 
       {error && <ErrorMsg>{error}</ErrorMsg>}
@@ -284,7 +391,19 @@ export default function QuizManagementTab() {
             {loading ? (
               <tr><td colSpan={8}><CenterCell>불러오는 중...</CenterCell></td></tr>
             ) : quizzes.length === 0 ? (
-              <tr><td colSpan={8}><CenterCell>등록된 퀴즈가 없습니다.</CenterCell></td></tr>
+              /*
+                2026-04-09 P1-⑫ 전역 검색 승급 후: 서버가 빈 페이지를 반환하는 경우를 통합 처리.
+                필터가 걸려 있으면 "필터 조건에 해당 없음" / 없으면 "등록 데이터 없음" 분기.
+              */
+              <tr>
+                <td colSpan={8}>
+                  <CenterCell>
+                    {hasExtraFilter || statusFilter
+                      ? '지정한 필터 조건에 해당하는 퀴즈가 없습니다.'
+                      : '등록된 퀴즈가 없습니다.'}
+                  </CenterCell>
+                </td>
+              </tr>
             ) : (
               quizzes.map((item) => (
                 <Tr key={item.quizId}>
@@ -751,4 +870,105 @@ const CancelButton = styled.button`
   color: ${({ theme }) => theme.colors.textSecondary};
   background: ${({ theme }) => theme.colors.bgCard};
   &:hover { background: ${({ theme }) => theme.colors.bgHover}; }
+`;
+
+// ──────────────────────────────────────────────
+// 클라이언트 필터 바 (2026-04-09 P1-⑫ 신규)
+// ──────────────────────────────────────────────
+
+/**
+ * 퀴즈 목록 위에 표시되는 클라이언트 측 필터 바.
+ * 텍스트 입력 2개(영화 ID / 키워드) + 날짜 범위(시작~종료) + 리셋 버튼을 가로 배치.
+ * 좁은 화면에서는 자동 줄바꿈한다.
+ */
+const ClientFilterBar = styled.div`
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: ${({ theme }) => theme.spacing.sm};
+  padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
+  margin-bottom: ${({ theme }) => theme.spacing.sm};
+  background: ${({ theme }) => theme.colors.bgHover};
+  border: 1px solid ${({ theme }) => theme.colors.borderLight};
+  border-radius: 6px;
+`;
+
+/**
+ * 클라이언트 필터 텍스트 입력.
+ * $flex=true 면 남은 공간을 채움 — 키워드 입력처럼 넓게 써야 할 때 사용.
+ */
+const ClientFilterInput = styled.input`
+  height: 30px;
+  padding: 0 10px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  background: #ffffff;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  min-width: 140px;
+  ${({ $flex }) => $flex && 'flex: 1; min-width: 180px;'}
+
+  &:focus {
+    outline: none;
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+
+  &::placeholder {
+    color: ${({ theme }) => theme.colors.textMuted};
+  }
+`;
+
+/** 출제일 범위 입력 그룹 — 라벨 + date + 물결 + date */
+const ClientDateGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+const ClientDateLabel = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  margin-right: 2px;
+  white-space: nowrap;
+`;
+
+const ClientFilterDate = styled.input`
+  height: 30px;
+  padding: 0 6px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  background: #ffffff;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: inherit;
+
+  &:focus {
+    outline: none;
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
+`;
+
+const ClientDateSep = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+`;
+
+/** 필터 전체 초기화 outline 버튼 — 필터가 하나라도 적용된 경우에만 표시 */
+const ClientFilterResetButton = styled.button`
+  height: 30px;
+  padding: 0 12px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  background: ${({ theme }) => theme.colors.bgCard};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  white-space: nowrap;
+  transition: all ${({ theme }) => theme.transitions.fast};
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.bgHover};
+    color: ${({ theme }) => theme.colors.textPrimary};
+    border-color: ${({ theme }) => theme.colors.primary};
+  }
 `;

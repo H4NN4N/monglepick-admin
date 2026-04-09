@@ -29,6 +29,25 @@ export function fetchRewardPolicyHistory(id) {
   return backendApi.get(`${BASE}/${id}/history`);
 }
 
+/**
+ * 전체 리워드 정책 변경 이력 대시보드 조회 — 2026-04-09 P2-⑰ 신규.
+ *
+ * Backend `GET /api/v1/admin/reward-policies/history` 호출.
+ * 모든 정책의 변경 이력을 복합 필터로 페이징 조회한다.
+ *
+ * @param {Object} [params]           - 필터 파라미터
+ * @param {number} [params.policyId]  - 특정 정책만 (생략 시 전체)
+ * @param {string} [params.changedBy] - 특정 관리자 userId (생략 시 전체)
+ * @param {string} [params.fromDate]  - 시작 시각 ISO-8601 (생략 시 전체)
+ * @param {string} [params.toDate]    - 종료 시각 ISO-8601 (생략 시 전체)
+ * @param {number} [params.page=0]    - 페이지 번호
+ * @param {number} [params.size=20]   - 페이지 크기
+ * @returns {Promise<Object>} Page&lt;HistoryResponse&gt;
+ */
+export function fetchAllRewardPolicyHistory(params = {}) {
+  return backendApi.get(`${BASE}/history`, { params });
+}
+
 export function createRewardPolicy(payload) {
   return backendApi.post(BASE, payload);
 }

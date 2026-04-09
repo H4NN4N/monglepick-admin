@@ -35,7 +35,12 @@ export function fetchDataQuality() {
   return agentApi.get(DATA_ADMIN_ENDPOINTS.QUALITY);
 }
 
-/* ── 영화 데이터 CRUD ── */
+/* ── 영화 데이터 CRUD ──
+ *
+ * 2026-04-08: 기존 Backend(Spring Boot) AdminMovieController 경로를 단일 진실 원본 원칙에 따라
+ * Agent(FastAPI admin_data.py) 로 일원화했다. 관리자 페이지에서 호출하는 모든 영화 CRUD 는
+ * 이 파일(dataApi.js)을 사용하며, 별도의 backendApi 기반 movieApi.js 는 삭제되었다.
+ */
 
 /**
  * 영화 목록 조회 (검색/필터/페이징).
@@ -47,7 +52,7 @@ export function fetchMovies(params) {
 }
 
 /**
- * 영화 상세 조회.
+ * 영화 상세 조회 (5DB 통합).
  * @param {string} id - 영화 ID
  * @returns {Promise<Object>} 영화 상세 데이터
  */
@@ -56,7 +61,20 @@ export function fetchMovieDetail(id) {
 }
 
 /**
- * 영화 정보 수정.
+ * 영화 신규 등록 (Agent MySQL INSERT).
+ *
+ * 주의: 검색 인덱스(Qdrant/Neo4j/ES)는 다음 파이프라인 실행 시 자동 반영된다.
+ *       즉시 반영이 필요하면 등록 후 `/pipeline/run` 을 수동으로 트리거해야 한다.
+ *
+ * @param {Object} data - 영화 등록 필드 (movieId/title 필수, 그 외 선택)
+ * @returns {Promise<Object>} 등록 결과 { success, movieId, message, needsReindex }
+ */
+export function createMovie(data) {
+  return agentApi.post(DATA_ADMIN_ENDPOINTS.MOVIES, data);
+}
+
+/**
+ * 영화 정보 수정 (4DB 동기 반영 베스트-에포트).
  * @param {string} id - 영화 ID
  * @param {Object} data - 수정할 필드
  * @returns {Promise<Object>} 수정된 영화 데이터
@@ -66,7 +84,7 @@ export function updateMovie(id, data) {
 }
 
 /**
- * 영화 삭제 (5DB에서 전부 제거).
+ * 영화 삭제 (4DB 동기 삭제 베스트-에포트).
  * @param {string} id - 영화 ID
  * @returns {Promise<Object>} 삭제 결과
  */

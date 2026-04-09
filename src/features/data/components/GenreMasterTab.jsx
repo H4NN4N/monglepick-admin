@@ -17,11 +17,42 @@ import {
   updateGenre,
   deleteGenre,
 } from '../api/genreApi';
+/* 2026-04-09 P2-⑬ 확장: 대량 CSV 등록 인프라 재사용 */
+import CsvImportButton from '@/shared/components/CsvImportButton';
 
 const PAGE_SIZE = 10;
 const MODE_CREATE = 'CREATE';
 const MODE_EDIT = 'EDIT';
 const EMPTY_FORM = { genreCode: '', genreName: '' };
+
+/**
+ * CSV 대량 등록 컬럼 정의 — 2026-04-09 P2-⑬ 재사용.
+ *
+ * 장르는 매우 단순한 구조이므로 두 필드만 매핑:
+ * - `genreCode`: 시스템 식별자 (예: "ACTION", "SCI_FI") — 영문 대문자/언더스코어 권장
+ * - `genreName`: 사용자 노출용 한국어 이름 (예: "액션", "SF")
+ *
+ * 두 필드 모두 필수. 기존 `createGenre()` API 를 그대로 재활용한다.
+ * 중복 genreCode 는 Backend 에서 409 로 거부되며, 해당 행은 실패 목록에 수집된다.
+ */
+const CSV_IMPORT_COLUMNS = [
+  {
+    key: 'genreCode',
+    header: 'genreCode',
+    required: true,
+    description: '시스템 식별자 (영문 대문자/언더스코어, 예: ACTION)',
+    example: 'ACTION',
+    example2: 'SCI_FI',
+  },
+  {
+    key: 'genreName',
+    header: 'genreName',
+    required: true,
+    description: '한국어 노출명 (예: 액션)',
+    example: '액션',
+    example2: 'SF',
+  },
+];
 
 export default function GenreMasterTab() {
   const [genres, setGenres] = useState([]);
@@ -125,6 +156,21 @@ export default function GenreMasterTab() {
           <PrimaryButton onClick={openCreateModal}>
             <MdAdd size={16} /> 신규 등록
           </PrimaryButton>
+          {/*
+            CSV 대량 등록 — 2026-04-09 P2-⑬ 확장.
+            `createGenre()` 를 행별로 순차 호출. 중복 genreCode 는 Backend 409 로
+            반환되어 실패 행 목록에 수집된다. 성공 건이 하나라도 있으면 목록 재조회.
+          */}
+          <CsvImportButton
+            label="CSV 가져오기"
+            columns={CSV_IMPORT_COLUMNS}
+            onRowImport={createGenre}
+            onComplete={(result) => {
+              if (result.succeeded > 0) loadGenres();
+            }}
+            disabled={loading}
+            templateName="genres"
+          />
           <IconButton onClick={loadGenres} disabled={loading} title="새로고침">
             <MdRefresh size={16} />
           </IconButton>

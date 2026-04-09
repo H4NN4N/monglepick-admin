@@ -5,9 +5,15 @@
  *  - 구 "콘텐츠 관리" → "게시판 관리"로 이름 변경
  *  - 카테고리 탭 흡수 (운영 도구에서 이관 — 게시글 카테고리는 게시판 도메인)
  *
- * 5개 서브탭:
- * - 신고 관리: 신고 목록 + 블라인드/삭제/무시 조치
- * - 혐오표현: 독성 로그 + 복원/삭제/경고 조치
+ * 2026-04-09 P0-① 확장:
+ *  - **모더레이션 큐** 서브탭 첫 번째로 신설.
+ *    신고/혐오표현을 통합 조회하여 우선순위 자동 정렬 후 빠른 처리를 지원한다.
+ *    기존 신고 관리/혐오표현 탭은 상세 조치용으로 그대로 유지한다.
+ *
+ * 6개 서브탭:
+ * - **모더레이션 큐**: 신고+혐오표현 통합 큐 (우선순위 자동 정렬, 빠른 처리) ← 신규
+ * - 신고 관리: 신고 목록 + 블라인드/삭제/무시 상세 조치
+ * - 혐오표현: 독성 로그 + 복원/삭제/경고 상세 조치
  * - 게시글: 게시글 수정/삭제 + 키워드/카테고리 필터
  * - 리뷰: 리뷰 삭제 + 영화ID/평점 필터
  * - 카테고리: 게시글 상위/하위 카테고리 CRUD
@@ -18,14 +24,16 @@
 
 import { useState } from 'react';
 import styled from 'styled-components';
+import ModerationQueueTab from '../components/ModerationQueueTab';
 import ReportTab from '../components/ReportTab';
 import ToxicityTab from '../components/ToxicityTab';
 import PostTab from '../components/PostTab';
 import ReviewTab from '../components/ReviewTab';
 import CategoryTab from '../components/CategoryTab';
 
-/** 서브탭 정의 */
+/** 서브탭 정의 — 2026-04-09 P0-① 모더레이션 큐 첫 위치 추가 */
 const TABS = [
+  { key: 'moderation', label: '모더레이션 큐' },
   { key: 'reports',    label: '신고 관리' },
   { key: 'toxicity',   label: '혐오표현' },
   { key: 'posts',      label: '게시글' },
@@ -34,11 +42,11 @@ const TABS = [
 ];
 
 export default function BoardPage() {
-  /** 현재 활성 탭 키 (기본: 신고 관리) */
-  const [activeTab, setActiveTab] = useState('reports');
+  /** 현재 활성 탭 키 (기본: 모더레이션 큐 — 운영자가 가장 먼저 확인해야 할 뷰) */
+  const [activeTab, setActiveTab] = useState('moderation');
 
   /** 방문한 탭 Set — 처음 방문 시에만 마운트 */
-  const [visited, setVisited] = useState(() => new Set(['reports']));
+  const [visited, setVisited] = useState(() => new Set(['moderation']));
 
   function handleTabClick(key) {
     setActiveTab(key);
@@ -75,6 +83,10 @@ export default function BoardPage() {
 
       {/* ── 탭 콘텐츠 영역 ── */}
       <TabPanel>
+        {/* 모더레이션 큐 — 2026-04-09 P0-① 첫 번째 위치 */}
+        <TabContent $visible={activeTab === 'moderation'}>
+          {visited.has('moderation') && <ModerationQueueTab />}
+        </TabContent>
         <TabContent $visible={activeTab === 'reports'}>
           {visited.has('reports') && <ReportTab />}
         </TabContent>
