@@ -38,3 +38,4 @@ coverage/
 # OS files
 Thumbs.db
 CLAUDE.md
+.env.production

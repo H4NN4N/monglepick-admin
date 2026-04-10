@@ -70,7 +70,7 @@ const INITIAL_FORM = {
   isPinned: false,
   publishedAt: '',
   /* 앱 공지 흡수 필드 */
-  displayType: 'LIST_ONLY',
+  displayType: 'BANNER',
   linkUrl: '',
   imageUrl: '',
   startAt: '',
@@ -481,6 +481,12 @@ export default function NoticeTab() {
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </Select>
+                  {/* 노출 방식에 따른 안내 문구 */}
+                  {form.displayType === 'LIST_ONLY' && (
+                    <FieldWarning>
+                      LIST_ONLY 선택 시 유저 앱 화면에 노출되지 않습니다. 유저에게 노출하려면 BANNER/POPUP/MODAL을 선택하세요.
+                    </FieldWarning>
+                  )}
                 </FormRow>
                 <FormRow>
                   <Label>우선순위 (높을수록 상단)</Label>
@@ -924,6 +930,17 @@ const SectionTitle = styled.h4`
   font-weight: ${({ theme }) => theme.fontWeights.semibold};
   color: ${({ theme }) => theme.colors.textPrimary};
   margin: 0;
+`;
+
+/** 노출 방식 경고 안내 문구 */
+const FieldWarning = styled.p`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.error};
+  background: ${({ theme }) => theme.colors.errorBg};
+  padding: ${({ theme }) => theme.spacing.xs} ${({ theme }) => theme.spacing.sm};
+  border-radius: 4px;
+  margin: 0;
+  line-height: 1.5;
 `;
 
 const SectionHint = styled.p`
