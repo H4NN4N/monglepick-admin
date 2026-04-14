@@ -21,6 +21,18 @@ import {
   updateOcrEventStatus,
   deleteOcrEvent,
 } from '../api/ocrEventApi';
+/*
+ * 2026-04-14: 운영자가 movie_id(VARCHAR PK) 를 외워 입력하던 부담을 제거하기 위해
+ * 모달의 "대상 영화" 필드를 MovieSearchPicker 로 전환.
+ *
+ *  - state: form.movieId(string) → formMovie(Movie|null)
+ *  - 편집 모드에서는 fetchMovieDetail(item.movieId) 로 chip 복원
+ *  - @NotBlank 필수값은 submit 전 수동 검증(formMovie null 검사)으로 대체
+ *  - Backend CreateOcrEventRequest/UpdateOcrEventRequest 의 movieId:String 시그니처 불변
+ */
+import MovieSearchPicker from '@/shared/components/MovieSearchPicker';
+import { normalizeMovie } from '@/shared/components/movieSearchPickerUtils';
+import { fetchMovieDetail } from '@/features/data/api/dataApi';
 
 const PAGE_SIZE = 10;
 
@@ -49,11 +61,13 @@ const MODE_EDIT = 'EDIT';
 /**
  * 폼 초기값.
  *
- * 2026-04-14: 유저 커뮤니티 "실관람인증" 탭 노출용 title/memo 필드 추가.
+ * 2026-04-14 (1): 유저 커뮤니티 "실관람인증" 탭 노출용 title/memo 필드 추가.
  * title 은 필수, memo 는 선택. 백엔드 @NotBlank + @Size 검증과 정합 유지.
+ *
+ * 2026-04-14 (2): movieId 를 form 에서 분리해 별도 state(formMovie: Movie|null) 로 관리.
+ * MovieSearchPicker 가 전체 영화 객체를 넘겨주므로 form 내부 중복 보관이 불필요하다.
  */
 const EMPTY_FORM = {
-  movieId: '',
   title: '',
   memo: '',
   startDate: '',
@@ -86,6 +100,16 @@ export default function OcrEventTab() {
   const [modalMode, setModalMode] = useState(null);
   const [editTargetId, setEditTargetId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  /**
+   * 모달 내부의 "대상 영화" 선택 상태.
+   *
+   * 2026-04-14: form.movieId(string) → formMovie(Movie|null) 로 분리.
+   * Backend 의 @NotBlank 를 프론트에서 선제 검증(handleSubmit 첫 줄) 해 원본 에러 메시지가
+   * alert 로 새어나오지 않도록 한다.
+   */
+  const [formMovie, setFormMovie] = useState(null);
+  /** 편집 모드에서 기존 movieId 로 영화 상세를 불러오는 중인지 여부 */
+  const [formMovieLoading, setFormMovieLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
@@ -114,14 +138,21 @@ export default function OcrEventTab() {
 
   function openCreateModal() {
     setForm(EMPTY_FORM);
+    setFormMovie(null);
     setEditTargetId(null);
     setModalMode(MODE_CREATE);
   }
 
+  /**
+   * 수정 모달 — 기존 값(title/memo/기간) 복원 + 대상 영화 chip 복원.
+   *
+   * 2026-04-14: 목록 응답에는 영화 제목이 없으므로(item.movieId 만 보유), Agent
+   * `fetchMovieDetail(movieId)` 를 비동기 호출해 title/titleEn/releaseYear 를 얻어
+   * MovieSearchPicker chip 으로 표시한다. 상세 로딩이 실패하더라도 chip 은 최소한
+   * movieId 만 가진 객체로 유지해 저장이 가능하도록 한다 (운영자는 해제 후 재검색 가능).
+   */
   function openEditModal(item) {
-    // 수정 모달: 기존 값(title/memo 포함)을 폼에 pre-fill
     setForm({
-      movieId: item.movieId ?? '',
       title: item.title ?? '',
       memo: item.memo ?? '',
       startDate: fromIsoLocalDateTime(item.startDate),
@@ -129,12 +160,36 @@ export default function OcrEventTab() {
     });
     setEditTargetId(item.eventId);
     setModalMode(MODE_EDIT);
+
+    if (item.movieId) {
+      setFormMovieLoading(true);
+      setFormMovie({
+        movieId: String(item.movieId),
+        title: item.movieId,
+        titleEn: '',
+        releaseYear: '',
+        posterPath: '',
+      });
+      fetchMovieDetail(item.movieId)
+        .then((detail) => {
+          const normalized = normalizeMovie(detail);
+          if (normalized) setFormMovie(normalized);
+        })
+        .catch(() => {
+          /* 상세 실패 시 movieId-only chip 유지 */
+        })
+        .finally(() => setFormMovieLoading(false));
+    } else {
+      setFormMovie(null);
+    }
   }
 
   function closeModal() {
     setModalMode(null);
     setEditTargetId(null);
     setForm(EMPTY_FORM);
+    setFormMovie(null);
+    setFormMovieLoading(false);
     setSubmitting(false);
   }
 
@@ -146,11 +201,19 @@ export default function OcrEventTab() {
   async function handleSubmit(e) {
     e.preventDefault();
     if (submitting) return;
+    /*
+     * 2026-04-14: movieId 는 Backend @NotBlank 이므로 반드시 선택돼 있어야 한다.
+     * MovieSearchPicker 는 native required 속성을 사용하지 않으므로 여기서 선제 검증한다.
+     */
+    if (!formMovie?.movieId) {
+      alert('대상 영화를 선택하세요.');
+      return;
+    }
     try {
       setSubmitting(true);
       // Backend Create/UpdateOcrEventRequest 와 필드명 1:1 정합
       const payload = {
-        movieId: form.movieId?.trim(),
+        movieId: formMovie.movieId,
         title: form.title?.trim(),
         memo: form.memo?.trim() || null, // 선택 필드 — 빈 문자열 대신 null 전송
         startDate: toIsoLocalDateTime(form.startDate),
@@ -316,16 +379,20 @@ export default function OcrEventTab() {
               {modalMode === MODE_CREATE ? 'OCR 이벤트 신규 등록' : 'OCR 이벤트 수정'}
             </DialogTitle>
             <form onSubmit={handleSubmit}>
+              {/*
+               * 2026-04-14: 영화 ID 텍스트 입력 → MovieSearchPicker.
+               * Backend @NotBlank 는 handleSubmit 첫 줄에서 formMovie null 검사로 대체한다.
+               * 편집 모드에서는 openEditModal 이 fetchMovieDetail 로 chip 을 선 복원한다.
+               */}
               <Field>
-                <Label>대상 영화 ID *</Label>
-                <Input
-                  type="text"
-                  name="movieId"
-                  value={form.movieId}
-                  onChange={handleFormChange}
-                  required
-                  maxLength={50}
-                  placeholder="movie_id (VARCHAR(50))"
+                <Label>
+                  대상 영화 *
+                  {formMovieLoading && <LoadingHint> · 영화 정보 로딩 중...</LoadingHint>}
+                </Label>
+                <MovieSearchPicker
+                  selectedMovie={formMovie}
+                  onChange={setFormMovie}
+                  placeholder="영화 제목으로 검색"
                 />
               </Field>
               {/*
@@ -394,6 +461,14 @@ export default function OcrEventTab() {
 /* ── styled-components ── */
 
 const Container = styled.div``;
+
+/** 수정 모달에서 영화 상세 로딩 중임을 알리는 인라인 힌트 (Label 옆에 표시) */
+const LoadingHint = styled.span`
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-weight: ${({ theme }) => theme.fontWeights.regular};
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  margin-left: 4px;
+`;
 const Toolbar = styled.div`
   display: flex;
   align-items: center;

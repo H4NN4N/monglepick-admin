@@ -25,6 +25,23 @@ import {
   updateQuizStatus,
   deleteQuiz,
 } from '../api/quizApi';
+/*
+ * 2026-04-14: 운영자가 movie_id(VARCHAR PK) 를 외워 입력하던 부담을 제거하기 위해
+ * 영화 제목 기반 Autocomplete(MovieSearchPicker) 로 전환한다.
+ *
+ *  - 상단 필터 바의 "영화 ID (부분 일치)" 텍스트 입력 → MovieSearchPicker
+ *    * state: movieIdFilter(string) → filterMovie(Movie|null)
+ *    * loadQuizzes 는 filterMovie?.movieId 만 추출해 Backend 에 전달 (API 시그니처 불변)
+ *  - 신규/수정 모달의 "영화 ID (선택)" 텍스트 입력 → MovieSearchPicker
+ *    * state: form.movieId(string) → formMovie(Movie|null)
+ *    * 편집 모드 진입 시 fetchMovieDetail(item.movieId) 로 chip 복원
+ *
+ * Backend `AdminQuizRepository.searchByFilters()` 는 movieId 를 부분 일치 LIKE 로 받지만
+ * 정확한 PK 를 보내도 동일하게 매칭되므로 기존 JPQL 수정 없음.
+ */
+import MovieSearchPicker from '@/shared/components/MovieSearchPicker';
+import { normalizeMovie } from '@/shared/components/movieSearchPickerUtils';
+import { fetchMovieDetail } from '@/features/data/api/dataApi';
 
 /** 페이지 크기 */
 const PAGE_SIZE = 10;
@@ -70,9 +87,14 @@ const STATUS_TRANSITION_BUTTONS = {
 const MODE_CREATE = 'CREATE';
 const MODE_EDIT = 'EDIT';
 
-/** 빈 폼 초기값 */
+/**
+ * 빈 폼 초기값.
+ *
+ * 2026-04-14: movieId 는 별도 state(formMovie: Movie|null)로 분리했다.
+ * MovieSearchPicker 가 전체 영화 객체(movieId/title/...)를 넘겨주므로 form 내부에
+ * 문자열로 들고 있을 필요가 없어졌다. 제출 시 formMovie?.movieId 를 그대로 사용.
+ */
 const EMPTY_FORM = {
-  movieId: '',
   question: '',
   explanation: '',
   correctAnswer: '',
@@ -101,7 +123,14 @@ export default function QuizManagementTab() {
    * 클라이언트 필터링(`filteredQuizzes`) 은 제거되었고, `quizzes` 배열을 그대로 렌더링한다.
    * 필터 변경 시 `page` 를 0 으로 리셋하여 전역 검색 결과의 첫 페이지가 표시되도록 한다.
    */
-  const [movieIdFilter, setMovieIdFilter] = useState('');
+  /**
+   * 상단 필터 바의 "영화" 필터.
+   *
+   * 2026-04-14: 텍스트 입력(movieIdFilter:string) → MovieSearchPicker(filterMovie:Movie|null)
+   * 로 승급. Backend 파라미터 시그니처(movieId:string)는 그대로이며,
+   * loadQuizzes 에서 filterMovie?.movieId 만 추출해 전달한다.
+   */
+  const [filterMovie, setFilterMovie] = useState(null);
   const [keywordFilter, setKeywordFilter] = useState('');
   const [fromDateFilter, setFromDateFilter] = useState('');
   const [toDateFilter, setToDateFilter] = useState('');
@@ -112,6 +141,15 @@ export default function QuizManagementTab() {
   const [modalMode, setModalMode] = useState(null);
   const [editTargetId, setEditTargetId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  /**
+   * 모달 내부의 "영화" 선택 상태.
+   *
+   * 2026-04-14: form.movieId(string) 을 MovieSearchPicker 와 궁합이 맞도록 Movie 객체로
+   * 분리했다. null 이면 "영화 선택 없음(일반 퀴즈)" 을 의미하며 제출 시 movieId=null 로 보낸다.
+   */
+  const [formMovie, setFormMovie] = useState(null);
+  /** 편집 모드에서 기존 movieId 로 영화 상세를 불러오는 중인지 여부 */
+  const [formMovieLoading, setFormMovieLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   /* ── 작업 진행 상태 ── */
@@ -131,7 +169,9 @@ export default function QuizManagementTab() {
       setError(null);
       const params = { page, size: PAGE_SIZE };
       if (statusFilter) params.status = statusFilter;
-      if (movieIdFilter.trim()) params.movieId = movieIdFilter.trim();
+      /* 2026-04-14: MovieSearchPicker 로 선택된 영화가 있을 때만 movieId 파라미터 전달.
+       * Backend 시그니처(@RequestParam String movieId)는 변경 없음. */
+      if (filterMovie?.movieId) params.movieId = filterMovie.movieId;
       if (keywordFilter.trim()) params.keyword = keywordFilter.trim();
       if (fromDateFilter) params.fromDate = fromDateFilter;
       if (toDateFilter)   params.toDate   = toDateFilter;
@@ -145,7 +185,7 @@ export default function QuizManagementTab() {
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, movieIdFilter, keywordFilter, fromDateFilter, toDateFilter]);
+  }, [page, statusFilter, filterMovie, keywordFilter, fromDateFilter, toDateFilter]);
 
   // ──────────────────────────────────────────────
   // 추가 필터 상태 헬퍼 (2026-04-09 P1-⑫ 전역 검색)
@@ -153,14 +193,14 @@ export default function QuizManagementTab() {
 
   /** status 외 추가 필터가 하나라도 적용되어 있는지 */
   const hasExtraFilter =
-    !!movieIdFilter.trim() ||
+    !!filterMovie ||
     !!keywordFilter.trim() ||
     !!fromDateFilter ||
     !!toDateFilter;
 
   /** 추가 필터 전체 초기화 (status 는 별도 드롭다운이므로 유지) */
   function handleClearExtraFilters() {
-    setMovieIdFilter('');
+    setFilterMovie(null);
     setKeywordFilter('');
     setFromDateFilter('');
     setToDateFilter('');
@@ -180,14 +220,22 @@ export default function QuizManagementTab() {
   /** 신규 등록 모달 */
   function openCreateModal() {
     setForm(EMPTY_FORM);
+    setFormMovie(null);
     setEditTargetId(null);
     setModalMode(MODE_CREATE);
   }
 
-  /** 수정 모달 — 기존 값 로드 */
+  /**
+   * 수정 모달 — 기존 값 로드.
+   *
+   * 2026-04-14: movieId 문자열이 아니라 MovieSearchPicker chip 으로 복원한다.
+   * 퀴즈 목록 응답에는 영화 제목이 없어서(`item.movieId` 만 보유) Agent 의
+   * `fetchMovieDetail(movieId)` 를 비동기 호출해 title/titleEn/releaseYear 를 얻는다.
+   * 실패하더라도 chip 은 최소한 movieId 만 가진 객체로 복원해 운영자가 해제 후
+   * 다시 검색할 수 있도록 한다.
+   */
   function openEditModal(item) {
     setForm({
-      movieId: item.movieId ?? '',
       question: item.question ?? '',
       explanation: item.explanation ?? '',
       correctAnswer: item.correctAnswer ?? '',
@@ -197,6 +245,30 @@ export default function QuizManagementTab() {
     });
     setEditTargetId(item.quizId);
     setModalMode(MODE_EDIT);
+
+    /* 영화 chip 복원 */
+    if (item.movieId) {
+      setFormMovieLoading(true);
+      /* 제목 로딩 중에도 운영자가 즉시 식별할 수 있도록 movieId 만 먼저 세팅 */
+      setFormMovie({
+        movieId: String(item.movieId),
+        title: item.movieId,
+        titleEn: '',
+        releaseYear: '',
+        posterPath: '',
+      });
+      fetchMovieDetail(item.movieId)
+        .then((detail) => {
+          const normalized = normalizeMovie(detail);
+          if (normalized) setFormMovie(normalized);
+        })
+        .catch(() => {
+          /* 상세 실패 시 movieId-only chip 유지. 운영자는 해제 후 다시 검색 가능. */
+        })
+        .finally(() => setFormMovieLoading(false));
+    } else {
+      setFormMovie(null);
+    }
   }
 
   /** 모달 닫기 */
@@ -204,6 +276,8 @@ export default function QuizManagementTab() {
     setModalMode(null);
     setEditTargetId(null);
     setForm(EMPTY_FORM);
+    setFormMovie(null);
+    setFormMovieLoading(false);
     setSubmitting(false);
   }
 
@@ -220,7 +294,9 @@ export default function QuizManagementTab() {
     try {
       setSubmitting(true);
       const payload = {
-        movieId: form.movieId || null,
+        /* 2026-04-14: MovieSearchPicker 로 선택된 영화의 movieId 만 추출.
+         * 영화 선택 없음(일반 퀴즈) 일 경우 null — Backend 는 nullable 허용. */
+        movieId: formMovie?.movieId || null,
         question: form.question?.trim(),
         explanation: form.explanation || null,
         correctAnswer: form.correctAnswer?.trim(),
@@ -314,13 +390,18 @@ export default function QuizManagementTab() {
         styled-components 이름(`ClientFilterBar` 등)은 호환성 유지 위해 그대로 둔다.
       */}
       <ClientFilterBar>
-        <ClientFilterInput
-          type="text"
-          value={movieIdFilter}
-          onChange={(e) => { setMovieIdFilter(e.target.value); setPage(0); }}
-          placeholder="영화 ID (부분 일치)"
-          maxLength={50}
-        />
+        {/*
+         * 2026-04-14: 영화 ID 텍스트 입력 → MovieSearchPicker.
+         * 운영자는 영화 제목으로 검색해 선택하고, Backend 에는 선택된 영화의 movieId 만 전달된다.
+         * 선택/해제 시 페이지를 0으로 리셋해 새 필터 결과의 첫 페이지가 표시되게 한다.
+         */}
+        <FilterMoviePickerWrap>
+          <MovieSearchPicker
+            selectedMovie={filterMovie}
+            onChange={(m) => { setFilterMovie(m); setPage(0); }}
+            placeholder="영화 제목으로 검색"
+          />
+        </FilterMoviePickerWrap>
         <ClientFilterInput
           type="text"
           value={keywordFilter}
@@ -371,7 +452,7 @@ export default function QuizManagementTab() {
           <>
             {' '}
             <em>
-              ※ 영화 ID / 키워드 / 출제일 필터는 <strong>DB 전역 검색</strong>으로
+              ※ 영화 / 키워드 / 출제일 필터는 <strong>DB 전역 검색</strong>으로
               적용됩니다 (총 {totalElements.toLocaleString()}건).
             </em>
           </>
@@ -484,14 +565,18 @@ export default function QuizManagementTab() {
             <form onSubmit={handleSubmit}>
               <FieldRow>
                 <Field>
-                  <Label>영화 ID (선택)</Label>
-                  <Input
-                    type="text"
-                    name="movieId"
-                    value={form.movieId}
-                    onChange={handleFormChange}
-                    placeholder="영화 ID (일반 퀴즈는 비워둠)"
-                    maxLength={50}
+                  {/*
+                   * 2026-04-14: 영화 ID 텍스트 입력 → MovieSearchPicker.
+                   * 일반 퀴즈(영화 불특정) 는 선택하지 않고 그대로 제출하면 되며,
+                   * 편집 모드에서는 openEditModal 이 기존 movieId 로 상세를 조회해 chip 을 복원한다.
+                   */}
+                  <Label>
+                    영화 (선택){formMovieLoading && <LoadingHint> · 영화 정보 로딩 중...</LoadingHint>}
+                  </Label>
+                  <MovieSearchPicker
+                    selectedMovie={formMovie}
+                    onChange={setFormMovie}
+                    placeholder="영화 제목으로 검색 (일반 퀴즈는 비워둠)"
                   />
                 </Field>
                 <Field>
@@ -578,6 +663,27 @@ export default function QuizManagementTab() {
 /* ── styled-components ── */
 
 const Container = styled.div``;
+
+/**
+ * 복합 필터 바 안에 들어가는 MovieSearchPicker 래퍼.
+ *
+ * 2026-04-14: ClientFilterBar 는 flex-row 컨테이너인데 MovieSearchPicker 의 Wrapper
+ * 가 `width: 100%` 라 의도보다 크게 늘어나므로 고정 폭(260px)으로 제한한다.
+ * 드롭다운(position: absolute)은 Wrapper 에 붙어있어 그대로 잘 렌더된다.
+ */
+const FilterMoviePickerWrap = styled.div`
+  width: 260px;
+  max-width: 260px;
+  flex: 0 0 auto;
+`;
+
+/** 수정 모달에서 영화 상세 로딩 중임을 알리는 인라인 힌트 */
+const LoadingHint = styled.span`
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-weight: ${({ theme }) => theme.fontWeights.regular};
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  margin-left: 4px;
+`;
 
 const Toolbar = styled.div`
   display: flex;

@@ -63,13 +63,21 @@ const NEXT_STATUS_OPTIONS = {
   ],
 };
 
-/** 티켓 카테고리 한국어 라벨 */
+/**
+ * 티켓 카테고리 한국어 라벨.
+ *
+ * <p>Backend {@code SupportCategory} enum (6종) 과 1:1 매핑.
+ * 유저 SupportPage 의 문의하기 드롭다운 ({@code TICKET_CATEGORIES}) 도
+ * 동일한 6종 값으로 저장한다. 과거 SERVICE/TECHNICAL/ETC 로 적혀 있던 값은
+ * Backend 가 실제로 저장하지 않으므로 라벨 매핑 실패 → 빈 셀로 표시되던 버그 수정.</p>
+ */
 const CATEGORY_LABELS = {
+  GENERAL: '일반',
   ACCOUNT: '계정',
-  PAYMENT: '결제/포인트',
-  SERVICE: '서비스 이용',
-  TECHNICAL: '기술 문의',
-  ETC: '기타',
+  CHAT: '채팅',
+  RECOMMENDATION: '추천',
+  COMMUNITY: '커뮤니티',
+  PAYMENT: '결제',
 };
 
 export default function TicketTab() {

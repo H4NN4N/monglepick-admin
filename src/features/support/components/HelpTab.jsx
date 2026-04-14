@@ -20,31 +20,40 @@ import {
 } from '../api/supportApi';
 import StatusBadge from '@/shared/components/StatusBadge';
 
-/** 도움말 카테고리 옵션 */
+/**
+ * 도움말 카테고리 옵션.
+ *
+ * <p>도움말 엔티티({@code SupportHelpArticle.category})도 FAQ와 동일한
+ * {@code SupportCategory} enum 을 공유한다. 따라서 허용 값은 아래 6종 으로 고정된다:
+ * GENERAL / ACCOUNT / CHAT / RECOMMENDATION / COMMUNITY / PAYMENT.</p>
+ */
 const CATEGORIES = [
   { value: '', label: '전체' },
-  { value: 'GETTING_STARTED', label: '시작하기' },
-  { value: 'ACCOUNT', label: '계정 관리' },
-  { value: 'CHAT', label: 'AI 채팅' },
-  { value: 'PAYMENT', label: '결제/포인트' },
+  { value: 'GENERAL', label: '일반' },
+  { value: 'ACCOUNT', label: '계정' },
+  { value: 'CHAT', label: '채팅' },
+  { value: 'RECOMMENDATION', label: '추천' },
   { value: 'COMMUNITY', label: '커뮤니티' },
-  { value: 'ETC', label: '기타' },
+  { value: 'PAYMENT', label: '결제' },
 ];
 
-/** 카테고리 한국어 라벨 매핑 */
+/** 카테고리 API 값 → 한국어 라벨 매핑 (목록 표시용) */
 const CATEGORY_LABELS = {
-  GETTING_STARTED: '시작하기',
-  ACCOUNT: '계정 관리',
-  CHAT: 'AI 채팅',
-  PAYMENT: '결제/포인트',
+  GENERAL: '일반',
+  ACCOUNT: '계정',
+  CHAT: '채팅',
+  RECOMMENDATION: '추천',
   COMMUNITY: '커뮤니티',
-  ETC: '기타',
+  PAYMENT: '결제',
 };
 
-/** 등록/수정 폼 초기값 */
+/**
+ * 등록/수정 폼 초기값.
+ * 과거 'GETTING_STARTED' 기본값으로 인해 모든 신규 도움말 등록이 400 으로 실패하던 버그 수정.
+ */
 const INITIAL_FORM = {
   title: '',
-  category: 'GETTING_STARTED',
+  category: 'GENERAL',
   content: '',
   displayOrder: 0,
 };
@@ -108,7 +117,8 @@ export default function HelpTab() {
     setEditTarget(article);
     setForm({
       title: article.title ?? '',
-      category: article.category ?? 'GETTING_STARTED',
+      /* Backend SupportCategory enum 과 일치해야 한다. 기본값은 INITIAL_FORM 과 통일. */
+      category: article.category ?? 'GENERAL',
       content: article.content ?? '',
       displayOrder: article.displayOrder ?? 0,
     });

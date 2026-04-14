@@ -25,32 +25,12 @@ import { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { MdSearch, MdClose, MdMovie } from 'react-icons/md';
 import { fetchMovies } from '@/features/data/api/dataApi';
+import { normalizeMovie } from './movieSearchPickerUtils';
 
 /** 디바운스 시간 (ms) */
 const DEBOUNCE_MS = 350;
 /** 검색 결과 최대 개수 */
 const SEARCH_SIZE = 10;
-
-/**
- * Agent /admin/movies 응답 한 건을 픽커 공통 스키마로 정규화한다.
- *
- * Agent 는 snake_case (movie_id/title_en/release_year/poster_path), 다른 탭에서는
- * camelCase 로 변환되어 쓰이기도 해서 양쪽을 모두 허용한다.
- *
- * @param {Object} raw - Agent 응답 원본
- * @returns {Object} { movieId, title, titleEn, releaseYear, posterPath }
- */
-function normalizeMovie(raw) {
-  if (!raw) return null;
-  return {
-    movieId: String(raw.movie_id ?? raw.movieId ?? ''),
-    title: raw.title ?? '-',
-    titleEn: raw.title_en ?? raw.titleEn ?? '',
-    releaseYear:
-      raw.release_year ?? raw.releaseYear ?? (raw.release_date ? String(raw.release_date).slice(0, 4) : ''),
-    posterPath: raw.poster_path ?? raw.posterPath ?? '',
-  };
-}
 
 export default function MovieSearchPicker({
   selectedMovie,

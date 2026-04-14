@@ -22,6 +22,15 @@ import StatusBadge from '@/shared/components/StatusBadge';
 import UserSearchPicker from '@/shared/components/UserSearchPicker';
 
 /**
+ * 1회 수동 포인트 지급/차감 최대 금액 (1억 P).
+ *
+ * 백엔드 `AdminManualPointRequest#amount` 의 `@Max(100,000,000)` 와 동기화되어야 한다.
+ * 1P = 10원 기준으로 10억원 상당이며, 서버의 `Integer` 타입 범위 오버플로우와
+ * 오타로 인한 비현실적 금액 입력을 사전에 차단하기 위한 상한.
+ */
+const MAX_MANUAL_POINT = 100_000_000;
+
+/**
  * 포인트 변동 유형 → StatusBadge 매핑.
  * 백엔드 `pointType` 값은 소문자 (earn/spend/refund/revoke/attendance 등) 이므로
  * 대소문자 무관 매핑을 위해 .toLowerCase() 적용.
@@ -103,6 +112,21 @@ export default function PointManagement() {
     const amountNum = Number(amount);
     if (!amount || Number.isNaN(amountNum) || amountNum <= 0) {
       setTransferError('포인트 금액을 올바르게 입력해주세요.');
+      return;
+    }
+    /*
+     * 상한 검증 — 백엔드 AdminManualPointRequest#amount 의 @Max(100,000,000) 와 동기화.
+     * 정수가 아닌 값/범위 초과 값을 서버까지 보내지 않고 즉시 차단하여
+     * 실수로 10조 같은 비현실적 수치를 입력하는 것을 방지한다.
+     */
+    if (!Number.isInteger(amountNum)) {
+      setTransferError('포인트 금액은 정수로 입력해주세요.');
+      return;
+    }
+    if (amountNum > MAX_MANUAL_POINT) {
+      setTransferError(
+        `1회 ${type === 'EARN' ? '지급' : '차감'} 가능한 최대 금액은 ${MAX_MANUAL_POINT.toLocaleString()}P 입니다.`
+      );
       return;
     }
     if (!reason.trim()) {
@@ -226,9 +250,11 @@ export default function PointManagement() {
                   <Input
                     type="number"
                     min={1}
+                    max={MAX_MANUAL_POINT}
+                    step={1}
                     value={transferForm.amount}
                     onChange={(e) => handleTransferChange('amount', e.target.value)}
-                    placeholder="0"
+                    placeholder={`1 ~ ${MAX_MANUAL_POINT.toLocaleString()}`}
                     $hasUnit
                   />
                   <Unit>P</Unit>
