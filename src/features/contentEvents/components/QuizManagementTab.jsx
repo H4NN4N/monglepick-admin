@@ -354,11 +354,19 @@ export default function QuizManagementTab() {
         )}
       </ClientFilterBar>
 
-      {/* ── 안내 ── */}
+      {/* ── 안내 ──
+       *   원본 영문 상태 흐름(PENDING→APPROVED/REJECTED …)은 운영자 친화적이지 않아
+       *   한국어 라벨 기준으로 다시 정리한다. 상태 라벨은 STATUS_FILTER_OPTIONS 와 일관.
+       */}
       <HelperText>
-        <strong>상태 전이:</strong> PENDING→APPROVED/REJECTED, APPROVED→PUBLISHED/REJECTED,
-        REJECTED→PENDING(재검수), PUBLISHED→REJECTED(긴급 회수).
-        <strong> 삭제는 PENDING/REJECTED 상태만 가능</strong>합니다.
+        <strong>상태 전이 규칙</strong>
+        <TransitionList>
+          <li><StatusChip $color={STATUS_COLOR.PENDING}>검수 대기</StatusChip> → 승인 / 탈락</li>
+          <li><StatusChip $color={STATUS_COLOR.APPROVED}>검수 통과</StatusChip> → 출제 / 탈락</li>
+          <li><StatusChip $color={STATUS_COLOR.REJECTED}>탈락</StatusChip> → 재검수(대기 복귀)</li>
+          <li><StatusChip $color={STATUS_COLOR.PUBLISHED}>출제 중</StatusChip> → 긴급 회수(탈락)</li>
+        </TransitionList>
+        <strong>삭제는 '검수 대기' 또는 '탈락' 상태에서만 가능합니다.</strong>
         {hasExtraFilter && (
           <>
             {' '}
@@ -609,7 +617,7 @@ const FilterSelect = styled.select`
   &:focus { border-color: ${({ theme }) => theme.colors.primary}; outline: none; }
 `;
 
-const HelperText = styled.p`
+const HelperText = styled.div`
   font-size: ${({ theme }) => theme.fontSizes.xs};
   color: ${({ theme }) => theme.colors.textMuted};
   background: ${({ theme }) => theme.colors.bgHover};
@@ -617,6 +625,39 @@ const HelperText = styled.p`
   border-radius: 4px;
   margin-bottom: ${({ theme }) => theme.spacing.md};
   border-left: 3px solid ${({ theme }) => theme.colors.primary};
+  line-height: 1.55;
+`;
+
+/**
+ * 상태 전이 규칙을 시각적으로 정렬해 보여주는 세로 리스트.
+ * 원본 영문(PENDING→APPROVED …) 대신 한국어 Chip + 화살표로 운영자 가독성 향상.
+ */
+const TransitionList = styled.ul`
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+`;
+
+/** 상태 라벨 Chip — STATUS_COLOR 와 동일한 색상 팔레트 사용. */
+const StatusChip = styled.span`
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  background: ${({ $color }) => `${$color}22`};
+  color: ${({ $color }) => $color};
+  border: 1px solid ${({ $color }) => `${$color}55`};
 `;
 
 const ErrorMsg = styled.p`

@@ -21,6 +21,7 @@ import { MdRefresh, MdAdd, MdEdit, MdDelete, MdSearch } from 'react-icons/md';
  * 단일 진실 원본 원칙에 따라 영화 CRUD 는 Agent(FastAPI admin_data.py)가 전담한다. */
 import {
   fetchMovies,
+  fetchMovieDetail,
   createMovie,
   updateMovie,
   deleteMovie,
@@ -194,6 +195,10 @@ export default function MovieMasterTab() {
   const [editTargetId, setEditTargetId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
+  /* 2026-04-14: 상세 모달에서 MySQL 전체 컬럼을 로드할 동안 표시할 로딩 플래그.
+   * 목록 API 는 최소 컬럼만 내려주므로(payload 최소화) 수정/상세 모달 진입 시
+   * fetchMovieDetail 로 전체 필드를 다시 가져와 폼을 덮어써야 한다. */
+  const [detailLoading, setDetailLoading] = useState(false);
 
   /* ── 삭제 진행 상태 ── */
   const [deletingId, setDeletingId] = useState(null);
@@ -236,8 +241,21 @@ export default function MovieMasterTab() {
     setModalMode(MODE_CREATE);
   }
 
-  /** 수정 모달 — 기존 값 로드 */
-  function openEditModal(item) {
+  /** 수정 모달 — 기존 값 로드.
+   *
+   * 2026-04-14 버그 수정: 목록 API(`GET /admin/data/movies`) 는 응답 최소화를 위해
+   * `overview/genres/tmdbId/certification/trailerUrl/tagline/originalLanguage/backdropPath/adult`
+   * 를 내려주지 않는다. 이 때문에 모달을 열면 해당 필드가 전부 공란으로 보였다.
+   *
+   * 전략:
+   *   1) 목록 item 으로 폼을 즉시 선채우기(시각적 공백 방지)
+   *   2) 모달을 먼저 띄우고 비동기로 `fetchMovieDetail` 호출 → `mysql` 객체의
+   *      전체 컬럼(snake_case)을 camelCase 로 매핑해 폼에 덮어쓰기
+   *   3) JSON 컬럼(genres)은 서버가 JSON 문자열 또는 배열로 반환할 수 있으므로
+   *      배열이면 `JSON.stringify` 해서 입력창 포맷(`["액션","SF"]`)과 통일
+   */
+  async function openEditModal(item) {
+    // 1) 목록 데이터로 일단 채우기 (누락 필드는 빈 값)
     setForm({
       movieId: item.movieId ?? '',
       tmdbId: item.tmdbId ?? '',
@@ -260,6 +278,58 @@ export default function MovieMasterTab() {
     });
     setEditTargetId(item.movieId);
     setModalMode(MODE_EDIT);
+
+    // 2) 상세 API 호출하여 전체 컬럼 가져오기
+    try {
+      setDetailLoading(true);
+      const detail = await fetchMovieDetail(item.movieId);
+      const m = detail?.mysql;
+      if (!m || m.error) return;
+
+      // JSON 컬럼(genres) 정규화 — 배열이면 문자열로, null/''이면 빈 문자열
+      const genresRaw = m.genres;
+      let genresStr = '';
+      if (Array.isArray(genresRaw)) {
+        genresStr = JSON.stringify(genresRaw);
+      } else if (typeof genresRaw === 'string') {
+        genresStr = genresRaw;
+      }
+
+      // release_date 는 LocalDate('YYYY-MM-DD') 문자열 또는 ISO 문자열일 수 있음 →
+      // <input type="date"> 에 맞게 앞 10자만 사용
+      const rawReleaseDate = m.release_date;
+      const releaseDateStr =
+        typeof rawReleaseDate === 'string' && rawReleaseDate.length >= 10
+          ? rawReleaseDate.slice(0, 10)
+          : '';
+
+      setForm({
+        movieId: m.movie_id ?? item.movieId ?? '',
+        tmdbId: m.tmdb_id ?? '',
+        title: m.title ?? '',
+        titleEn: m.title_en ?? '',
+        overview: m.overview ?? '',
+        genres: genresStr,
+        director: m.director ?? '',
+        releaseYear: m.release_year ?? '',
+        releaseDate: releaseDateStr,
+        runtime: m.runtime ?? '',
+        rating: m.rating ?? '',
+        posterPath: m.poster_path ?? '',
+        certification: m.certification ?? '',
+        trailerUrl: m.trailer_url ?? '',
+        tagline: m.tagline ?? '',
+        originalLanguage: m.original_language ?? '',
+        backdropPath: m.backdrop_path ?? '',
+        adult: !!m.adult,
+      });
+    } catch (err) {
+      // 상세 실패해도 목록 데이터로 폴백 — 사용자에겐 경고만 노출
+      // eslint-disable-next-line no-console
+      console.warn('[MovieMasterTab] 영화 상세 조회 실패:', err);
+    } finally {
+      setDetailLoading(false);
+    }
   }
 
   /** 모달 닫기 */
@@ -481,6 +551,12 @@ export default function MovieMasterTab() {
           <DialogBox onClick={(e) => e.stopPropagation()}>
             <DialogTitle>
               {modalMode === MODE_CREATE ? '영화 신규 등록' : '영화 수정'}
+              {/* 2026-04-14: 상세 API 로드 중 표시 — 사용자가 빈 칸을 오해하지 않도록 */}
+              {modalMode === MODE_EDIT && detailLoading && (
+                <span style={{ marginLeft: 8, fontSize: 12, color: '#888', fontWeight: 400 }}>
+                  (상세 정보 불러오는 중...)
+                </span>
+              )}
             </DialogTitle>
             <form onSubmit={handleSubmit}>
               <FieldRow>

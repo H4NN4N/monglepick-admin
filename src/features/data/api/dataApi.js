@@ -9,31 +9,42 @@
 import { agentApi } from '@/shared/api/axiosInstance';
 import { DATA_ADMIN_ENDPOINTS } from '@/shared/constants/api';
 
-/* ── 데이터 현황 ── */
+/* ── 데이터 현황 ──
+ *
+ * 2026-04-14: Agent admin_data.py 의 실제 구현 경로와 일치시킴.
+ * 과거 이름(fetchDataStats/fetchDataHealth)은 alias 로 유지 — 기존 호출부는 자연스럽게 작동.
+ */
 
 /**
- * 5DB(MySQL/Qdrant/Neo4j/ES/Redis) 전체 건수 및 소스별 분포 조회.
- * @returns {Promise<Object>} 통계 데이터
+ * 5DB(MySQL/Qdrant/Neo4j/ES/Redis) 전체 건수 카드.
+ * GET /admin/data/overview
+ * @returns {Promise<Object>} { mysql, qdrant, neo4j, elasticsearch, redis, checkedAt }
  */
-export function fetchDataStats() {
-  return agentApi.get(DATA_ADMIN_ENDPOINTS.STATS);
+export function fetchDataOverview() {
+  return agentApi.get(DATA_ADMIN_ENDPOINTS.OVERVIEW);
 }
 
 /**
- * 데이터 수집 파이프라인 헬스 상태 조회.
- * @returns {Promise<Object>} 헬스 데이터
+ * 소스별(TMDB/KOBIS/KMDb 등) 영화 분포.
+ * GET /admin/data/distribution
+ * @returns {Promise<Object>} { distribution: [{source, count, percentage}], total }
  */
-export function fetchDataHealth() {
-  return agentApi.get(DATA_ADMIN_ENDPOINTS.HEALTH);
+export function fetchDataDistribution() {
+  return agentApi.get(DATA_ADMIN_ENDPOINTS.DISTRIBUTION);
 }
 
 /**
- * 데이터 품질 점수 3종(정확도/완결성/일관성) 조회.
- * @returns {Promise<Object>} 품질 점수
+ * 데이터 품질 지표 (NULL 비율/중복/평균 평점).
+ * GET /admin/data/quality
+ * @returns {Promise<Object>} { totalMovies, nullRates, duplicateTitles, averageRating, ... }
  */
 export function fetchDataQuality() {
   return agentApi.get(DATA_ADMIN_ENDPOINTS.QUALITY);
 }
+
+/* 레거시 별칭 — 기존 import 호환용 */
+export const fetchDataStats = fetchDataOverview;
+export const fetchDataHealth = fetchDataDistribution;
 
 /* ── 영화 데이터 CRUD ──
  *

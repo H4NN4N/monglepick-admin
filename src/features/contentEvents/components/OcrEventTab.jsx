@@ -204,8 +204,8 @@ export default function OcrEventTab() {
       </Toolbar>
 
       <HelperText>
-        실관람 OCR 인증 이벤트는 <strong>READY → ACTIVE → CLOSED</strong> 라이프사이클을 가집니다.
-        관리자는 임의로 상태를 전이할 수 있습니다.
+        실관람 OCR 인증 이벤트는 <strong>대기 → 진행 중 → 종료</strong> 순서로 운영됩니다.
+        관리자는 필요 시 언제든 상태를 전이할 수 있습니다.
       </HelperText>
 
       {error && <ErrorMsg>{error}</ErrorMsg>}

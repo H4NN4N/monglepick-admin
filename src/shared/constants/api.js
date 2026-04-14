@@ -100,9 +100,14 @@ export const AI_ADMIN_ENDPOINTS = {
 };
 
 /* ── 데이터 관리 (윤형주 — Agent) ── */
+// 2026-04-14: Agent 가 실제로 제공하는 경로와 일치시킴 (기존 /data/stats, /data/health 는
+// 미구현이라 "데이터 현황" 탭이 비어 보였던 원인). admin_data.py 의 데이터 현황 3EP 와 매핑:
+//   OVERVIEW     → /admin/data/overview     (5DB 건수 카드)
+//   DISTRIBUTION → /admin/data/distribution (소스별 분포)
+//   QUALITY      → /admin/data/quality      (NULL 비율 등 품질)
 export const DATA_ADMIN_ENDPOINTS = {
-  STATS: `${ADMIN}/data/stats`,
-  HEALTH: `${ADMIN}/data/health`,
+  OVERVIEW: `${ADMIN}/data/overview`,
+  DISTRIBUTION: `${ADMIN}/data/distribution`,
   QUALITY: `${ADMIN}/data/quality`,
   MOVIES: `${ADMIN}/movies`,
   MOVIE_DETAIL: (id) => `${ADMIN}/movies/${id}`,

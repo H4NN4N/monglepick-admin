@@ -192,12 +192,18 @@ export function downloadCsv(filename, columns, rows) {
  * <h3>템플릿 구조</h3>
  * <ol>
  *   <li>1행: 헤더 (`columns[].header`)</li>
- *   <li>2행: 예시 행 1 — 각 컬럼의 `example` 필드 값. 없으면 빈 값.</li>
- *   <li>3행: 예시 행 2 — 각 컬럼의 `example2` 필드 값. 생략 가능.</li>
+ *   <li>2행 이후: 예시 행들 — 각 컬럼의 `example`, `example2`, `example3`, ... 필드 값.
+ *       해당 슬롯에 값이 하나라도 있는 컬럼이 존재하면 그 슬롯에 대응하는 행이 생성된다.
+ *       모든 컬럼의 해당 슬롯이 비어 있으면 그 슬롯부터는 추가하지 않는다.</li>
  * </ol>
  *
  * <p>예시 행은 운영자가 "어떤 값을 넣어야 하는지" 즉시 파악할 수 있도록 제공한다.
  * 실제 업로드 전에는 예시 행을 삭제하거나 수정해야 한다.</p>
+ *
+ * <p><strong>2026-04-14 확장</strong>: 기존 `example` + `example2` 2슬롯 고정에서
+ * `example{N}` 패턴(N=2..{@link MAX_EXAMPLE_SLOTS})으로 확장. 리워드 정책처럼
+ * CONTENT/ENGAGEMENT/MILESTONE/ATTENDANCE 등 다양한 카테고리별 샘플을 제공해야
+ * 하는 템플릿의 가독성을 위해 추가.</p>
  *
  * @param {string} filename           저장할 파일명 (`_template.csv` 접미어 자동 부착)
  * @param {Array<{
@@ -205,6 +211,10 @@ export function downloadCsv(filename, columns, rows) {
  *   required?: boolean,
  *   example?: unknown,
  *   example2?: unknown,
+ *   example3?: unknown,
+ *   example4?: unknown,
+ *   example5?: unknown,
+ *   example6?: unknown,
  *   description?: string
  * }>} columns                        임포트 컬럼 정의 (CsvImportButton 과 동일 포맷)
  */
@@ -223,23 +233,38 @@ export function downloadCsvTemplate(filename, columns) {
   }));
 
   /*
-   * 예시 행 생성. `example` 또는 `example2` 필드가 정의된 컬럼은 해당 값을 사용하고,
-   * 정의되지 않은 컬럼은 빈 문자열로 채운다. 필수 필드의 경우 운영자가 최소한의
-   * 형식을 알 수 있도록 example 이 항상 정의되어 있어야 한다.
+   * 예시 행 N개 지원 — `example`(슬롯 1), `example2`(슬롯 2), ..., `example{MAX}`(슬롯 MAX).
+   *
+   * 각 슬롯마다 모든 컬럼을 순회하여 해당 슬롯의 값을 모은다. 슬롯 전체가 비어 있으면
+   * 그 행과 이후 슬롯은 추가하지 않는다 (중간 구멍은 허용 — 예: example 있고 example2 없는데
+   * example3 있으면 example2 행은 빈 행으로 포함된다. 하지만 설계상 연속 채우기를 권장).
    */
-  const exampleRow1 = {};
-  const exampleRow2 = {};
-  for (const col of columns) {
-    exampleRow1[col.header] = col.example !== undefined ? col.example : '';
-    exampleRow2[col.header] = col.example2 !== undefined ? col.example2 : '';
+  const MAX_EXAMPLE_SLOTS = 6;
+  const rows = [];
+  for (let slot = 1; slot <= MAX_EXAMPLE_SLOTS; slot++) {
+    const field = slot === 1 ? 'example' : `example${slot}`;
+    const row = {};
+    let hasAny = false;
+    for (const col of columns) {
+      const val = col[field];
+      if (val !== undefined && val !== null && val !== '') {
+        row[col.header] = val;
+        hasAny = true;
+      } else {
+        row[col.header] = '';
+      }
+    }
+    if (hasAny) {
+      rows.push(row);
+    } else if (slot === 1) {
+      // 슬롯 1이 완전히 비어 있으면 최소 1개 빈 행을 삽입(헤더만 있는 CSV 방지)
+      rows.push(row);
+      break;
+    } else {
+      // 슬롯 N>=2 이 비어 있으면 종료 — 뒤쪽 슬롯은 무시
+      break;
+    }
   }
-
-  /*
-   * 예시 행 2가 모두 비어있으면 포함하지 않는다 (불필요한 빈 행 방지).
-   * 최소 1개 행에 값이 있으면 둘 다 포함한다.
-   */
-  const hasExample2 = Object.values(exampleRow2).some((v) => v !== '' && v !== null && v !== undefined);
-  const rows = hasExample2 ? [exampleRow1, exampleRow2] : [exampleRow1];
 
   const safeName = filename.endsWith('_template.csv')
     ? filename
