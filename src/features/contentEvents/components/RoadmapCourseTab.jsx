@@ -7,23 +7,24 @@
  * - 수정 모달 (course_id 제외 모든 필드)
  * - 활성/비활성 토글 버튼
  *
- * 영화 ID 입력:
- * - 백엔드는 List<String> 으로 받지만, UI에서는 쉼표 구분 텍스트로 입력 받아
- *   submit 시점에 split + trim 하여 배열로 변환한다.
+ * 영화 선택:
+ * - 제목 검색(GET /movies/search)으로 영화를 찾아 추가.
+ * - 선택된 영화는 순서 유지(위/아래 이동 가능)되며 제출 시 movieIds 배열로 변환.
  *
  * 비활성화 정책:
  * - 사용자 진행 기록(user_course_progress)이 course_id slug로 코스를 참조하므로
  *   hard delete 불가. 더 이상 사용하지 않는 코스는 토글로 비활성화만 한다.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import styled from 'styled-components';
-import { MdRefresh, MdAdd, MdEdit, MdToggleOn, MdToggleOff } from 'react-icons/md';
+import { MdRefresh, MdAdd, MdEdit, MdToggleOn, MdToggleOff, MdSearch, MdClose, MdArrowUpward, MdArrowDownward } from 'react-icons/md';
 import {
   fetchCourses,
   createCourse,
   updateCourse,
   updateCourseActive,
+  searchMovies,
 } from '../api/roadmapCourseApi';
 
 /** 페이지 크기 */
@@ -46,24 +47,9 @@ const EMPTY_FORM = {
   title: '',
   description: '',
   theme: '',
-  movieIdsText: '', // 쉼표 구분 입력
   difficulty: 'beginner',
   quizEnabled: false,
 };
-
-/** 영화 ID 텍스트 → 배열 변환 (쉼표/공백/줄바꿈 분리) */
-function parseMovieIdsText(text) {
-  if (!text) return [];
-  return text
-    .split(/[,\s]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-/** 영화 ID 배열 → 텍스트 (편집 모달에서 기존 값 로드용) */
-function joinMovieIds(arr) {
-  return Array.isArray(arr) ? arr.join(', ') : '';
-}
 
 export default function RoadmapCourseTab() {
   /* ── 목록 상태 ── */
@@ -78,6 +64,14 @@ export default function RoadmapCourseTab() {
   const [editTargetId, setEditTargetId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
+
+  /* ── 영화 선택 상태 ── */
+  const [selectedMovies, setSelectedMovies] = useState([]); // [{ movieId, title?, titleEn?, releaseYear?, director? }]
+  const [movieKeyword, setMovieKeyword] = useState('');
+  const [movieResults, setMovieResults] = useState([]);
+  const [movieSearching, setMovieSearching] = useState(false);
+  const [movieSearchError, setMovieSearchError] = useState(null);
+  const searchDebounceRef = useRef(null);
 
   /* ── 토글 상태 ── */
   const [togglingId, setTogglingId] = useState(null);
@@ -104,6 +98,10 @@ export default function RoadmapCourseTab() {
   /** 신규 등록 모달 열기 */
   function openCreateModal() {
     setForm(EMPTY_FORM);
+    setSelectedMovies([]);
+    setMovieKeyword('');
+    setMovieResults([]);
+    setMovieSearchError(null);
     setEditTargetId(null);
     setModalMode(MODE_CREATE);
   }
@@ -115,10 +113,18 @@ export default function RoadmapCourseTab() {
       title: item.title ?? '',
       description: item.description ?? '',
       theme: item.theme ?? '',
-      movieIdsText: joinMovieIds(item.movieIds),
       difficulty: item.difficulty ?? 'beginner',
       quizEnabled: !!item.quizEnabled,
     });
+    // 수정 시 movieIds만 있으므로 ID로 초기 목록 구성 (제목은 검색 후 추가)
+    setSelectedMovies(
+      Array.isArray(item.movieIds)
+        ? item.movieIds.map((id) => ({ movieId: String(id) }))
+        : []
+    );
+    setMovieKeyword('');
+    setMovieResults([]);
+    setMovieSearchError(null);
     setEditTargetId(item.roadmapCourseId);
     setModalMode(MODE_EDIT);
   }
@@ -128,6 +134,10 @@ export default function RoadmapCourseTab() {
     setModalMode(null);
     setEditTargetId(null);
     setForm(EMPTY_FORM);
+    setSelectedMovies([]);
+    setMovieKeyword('');
+    setMovieResults([]);
+    setMovieSearchError(null);
     setSubmitting(false);
   }
 
@@ -140,13 +150,82 @@ export default function RoadmapCourseTab() {
     }));
   }
 
+  /* ── 영화 검색 ── */
+
+  /** 영화 검색 실행 */
+  async function runMovieSearch(keyword) {
+    if (!keyword.trim()) {
+      setMovieResults([]);
+      return;
+    }
+    try {
+      setMovieSearching(true);
+      setMovieSearchError(null);
+      const results = await searchMovies(keyword.trim(), 15);
+      setMovieResults(Array.isArray(results) ? results : []);
+    } catch {
+      setMovieSearchError('검색 중 오류가 발생했습니다.');
+      setMovieResults([]);
+    } finally {
+      setMovieSearching(false);
+    }
+  }
+
+  function handleMovieKeywordChange(e) {
+    const val = e.target.value;
+    setMovieKeyword(val);
+    // 디바운스 300ms
+    clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => runMovieSearch(val), 300);
+  }
+
+  function handleMovieSearchKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(searchDebounceRef.current);
+      runMovieSearch(movieKeyword);
+    }
+  }
+
+  /** 영화 추가 (이미 추가된 경우 무시) */
+  function addMovie(movie) {
+    setSelectedMovies((prev) => {
+      if (prev.some((m) => m.movieId === movie.movieId)) return prev;
+      return [...prev, movie];
+    });
+  }
+
+  /** 영화 제거 */
+  function removeMovie(movieId) {
+    setSelectedMovies((prev) => prev.filter((m) => m.movieId !== movieId));
+  }
+
+  /** 영화 순서 위로 */
+  function moveMovieUp(index) {
+    if (index === 0) return;
+    setSelectedMovies((prev) => {
+      const next = [...prev];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      return next;
+    });
+  }
+
+  /** 영화 순서 아래로 */
+  function moveMovieDown(index) {
+    setSelectedMovies((prev) => {
+      if (index >= prev.length - 1) return prev;
+      const next = [...prev];
+      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      return next;
+    });
+  }
+
   /** 폼 제출 — CREATE/EDIT 분기 */
   async function handleSubmit(e) {
     e.preventDefault();
     if (submitting) return;
-    const movieIds = parseMovieIdsText(form.movieIdsText);
-    if (movieIds.length === 0) {
-      alert('영화 ID를 1개 이상 입력하세요. (쉼표 또는 줄바꿈으로 구분)');
+    if (selectedMovies.length === 0) {
+      alert('영화를 1개 이상 추가하세요.');
       return;
     }
 
@@ -156,7 +235,7 @@ export default function RoadmapCourseTab() {
         title: form.title?.trim(),
         description: form.description || null,
         theme: form.theme || null,
-        movieIds,
+        movieIds: selectedMovies.map((m) => m.movieId),
         difficulty: form.difficulty || 'beginner',
         quizEnabled: !!form.quizEnabled,
       };
@@ -358,21 +437,101 @@ export default function RoadmapCourseTab() {
                   </Select>
                 </Field>
               </FieldRow>
-              {/* 영화 ID 목록 */}
+
+              {/* ── 영화 검색 & 선택 ── */}
               <Field>
-                <Label>영화 ID 목록 *</Label>
-                <Textarea
-                  name="movieIdsText"
-                  value={form.movieIdsText}
-                  onChange={handleFormChange}
-                  placeholder="쉼표 또는 줄바꿈으로 구분 — 예: 12345, 67890, 11111"
-                  rows={4}
-                  required
-                />
-                <FieldHint>
-                  영화 ID는 쉼표 또는 줄바꿈으로 구분합니다. 입력 순서가 시청 권장 순서가 됩니다.
-                </FieldHint>
+                <Label>영화 목록 * ({selectedMovies.length}편 선택됨)</Label>
+
+                {/* 검색 입력 */}
+                <MovieSearchRow>
+                  <MovieSearchInput
+                    type="text"
+                    value={movieKeyword}
+                    onChange={handleMovieKeywordChange}
+                    onKeyDown={handleMovieSearchKeyDown}
+                    placeholder="영화 제목으로 검색 (한글/영문)"
+                  />
+                  <SearchIconButton
+                    type="button"
+                    onClick={() => { clearTimeout(searchDebounceRef.current); runMovieSearch(movieKeyword); }}
+                    disabled={movieSearching}
+                  >
+                    <MdSearch size={16} />
+                  </SearchIconButton>
+                </MovieSearchRow>
+
+                {/* 검색 결과 */}
+                {movieSearchError && <FieldHint style={{ color: 'red' }}>{movieSearchError}</FieldHint>}
+                {movieSearching && <FieldHint>검색 중...</FieldHint>}
+                {!movieSearching && movieResults.length > 0 && (
+                  <MovieResultList>
+                    {movieResults.map((movie) => {
+                      const alreadyAdded = selectedMovies.some((m) => m.movieId === movie.movieId);
+                      return (
+                        <MovieResultItem key={movie.movieId} $added={alreadyAdded}>
+                          <MovieResultInfo>
+                            <MovieResultTitle>
+                              {movie.title}
+                              {movie.titleEn && <MovieResultTitleEn> ({movie.titleEn})</MovieResultTitleEn>}
+                            </MovieResultTitle>
+                            <MovieResultMeta>
+                              {[movie.releaseYear, movie.director].filter(Boolean).join(' · ')}
+                              <MovieIdBadge>ID: {movie.movieId}</MovieIdBadge>
+                            </MovieResultMeta>
+                          </MovieResultInfo>
+                          <AddMovieButton
+                            type="button"
+                            onClick={() => addMovie(movie)}
+                            disabled={alreadyAdded}
+                          >
+                            {alreadyAdded ? '추가됨' : '+ 추가'}
+                          </AddMovieButton>
+                        </MovieResultItem>
+                      );
+                    })}
+                  </MovieResultList>
+                )}
+                {!movieSearching && movieKeyword.trim() && movieResults.length === 0 && !movieSearchError && (
+                  <FieldHint>검색 결과가 없습니다.</FieldHint>
+                )}
+
+                {/* 선택된 영화 목록 */}
+                {selectedMovies.length > 0 ? (
+                  <SelectedMovieList>
+                    <SelectedMovieListHeader>선택된 영화 (순서 = 시청 권장 순서)</SelectedMovieListHeader>
+                    {selectedMovies.map((movie, idx) => (
+                      <SelectedMovieItem key={movie.movieId}>
+                        <SelectedMovieOrder>{idx + 1}</SelectedMovieOrder>
+                        <SelectedMovieInfo>
+                          <SelectedMovieTitle>
+                            {movie.title || <span style={{ color: '#aaa' }}>ID: {movie.movieId}</span>}
+                          </SelectedMovieTitle>
+                          {movie.title && (
+                            <SelectedMovieMeta>
+                              {[movie.releaseYear, movie.director].filter(Boolean).join(' · ')}
+                              <MovieIdBadge>ID: {movie.movieId}</MovieIdBadge>
+                            </SelectedMovieMeta>
+                          )}
+                        </SelectedMovieInfo>
+                        <SelectedMovieActions>
+                          <OrderButton type="button" onClick={() => moveMovieUp(idx)} disabled={idx === 0} title="위로">
+                            <MdArrowUpward size={13} />
+                          </OrderButton>
+                          <OrderButton type="button" onClick={() => moveMovieDown(idx)} disabled={idx === selectedMovies.length - 1} title="아래로">
+                            <MdArrowDownward size={13} />
+                          </OrderButton>
+                          <RemoveButton type="button" onClick={() => removeMovie(movie.movieId)} title="제거">
+                            <MdClose size={13} />
+                          </RemoveButton>
+                        </SelectedMovieActions>
+                      </SelectedMovieItem>
+                    ))}
+                  </SelectedMovieList>
+                ) : (
+                  <EmptyMovieHint>위에서 영화를 검색하여 추가하세요.</EmptyMovieHint>
+                )}
               </Field>
+
               {/* 퀴즈 활성화 */}
               <Field>
                 <CheckboxLabel>
@@ -615,7 +774,7 @@ const DialogBox = styled.div`
   background: ${({ theme }) => theme.colors.bgCard};
   border-radius: ${({ theme }) => theme.layout.cardRadius};
   width: 100%;
-  max-width: 600px;
+  max-width: 640px;
   max-height: 90vh;
   overflow-y: auto;
   padding: ${({ theme }) => theme.spacing.xxl};
@@ -714,4 +873,203 @@ const CancelButton = styled.button`
   color: ${({ theme }) => theme.colors.textSecondary};
   background: ${({ theme }) => theme.colors.bgCard};
   &:hover { background: ${({ theme }) => theme.colors.bgHover}; }
+`;
+
+/* ── 영화 검색 UI ── */
+
+const MovieSearchRow = styled.div`
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+`;
+
+const MovieSearchInput = styled.input`
+  flex: 1;
+  padding: 7px 10px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  background: ${({ theme }) => theme.colors.bgCard};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  &:focus { border-color: ${({ theme }) => theme.colors.primary}; outline: none; }
+`;
+
+const SearchIconButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  background: ${({ theme }) => theme.colors.bgHover};
+  &:hover:not(:disabled) { border-color: ${({ theme }) => theme.colors.primary}; color: ${({ theme }) => theme.colors.primary}; }
+  &:disabled { opacity: 0.4; }
+`;
+
+const MovieResultList = styled.ul`
+  list-style: none;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+`;
+
+const MovieResultItem = styled.li`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid ${({ theme }) => theme.colors.borderLight};
+  background: ${({ $added, theme }) => $added ? theme.colors.bgHover : 'transparent'};
+  &:last-child { border-bottom: none; }
+`;
+
+const MovieResultInfo = styled.div`
+  flex: 1;
+  min-width: 0;
+`;
+
+const MovieResultTitle = styled.div`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const MovieResultTitleEn = styled.span`
+  font-weight: 400;
+  color: ${({ theme }) => theme.colors.textMuted};
+`;
+
+const MovieResultMeta = styled.div`
+  font-size: 11px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+`;
+
+const MovieIdBadge = styled.span`
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: ${({ theme }) => theme.colors.bgHover};
+  color: ${({ theme }) => theme.colors.textSecondary};
+`;
+
+const AddMovieButton = styled.button`
+  flex-shrink: 0;
+  padding: 3px 10px;
+  font-size: 12px;
+  border: 1px solid ${({ theme }) => theme.colors.primary};
+  border-radius: 3px;
+  color: ${({ theme }) => theme.colors.primary};
+  &:hover:not(:disabled) { background: ${({ theme }) => theme.colors.primary}; color: #fff; }
+  &:disabled { opacity: 0.4; border-color: ${({ theme }) => theme.colors.border}; color: ${({ theme }) => theme.colors.textMuted}; }
+`;
+
+const SelectedMovieList = styled.ul`
+  list-style: none;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  margin-top: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+`;
+
+const SelectedMovieListHeader = styled.div`
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  color: ${({ theme }) => theme.colors.textMuted};
+  background: ${({ theme }) => theme.colors.bgHover};
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+`;
+
+const SelectedMovieItem = styled.li`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid ${({ theme }) => theme.colors.borderLight};
+  &:last-child { border-bottom: none; }
+`;
+
+const SelectedMovieOrder = styled.span`
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  color: ${({ theme }) => theme.colors.textMuted};
+`;
+
+const SelectedMovieInfo = styled.div`
+  flex: 1;
+  min-width: 0;
+`;
+
+const SelectedMovieTitle = styled.div`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const SelectedMovieMeta = styled.div`
+  font-size: 11px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+`;
+
+const SelectedMovieActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+`;
+
+const OrderButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 3px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  &:hover:not(:disabled) { border-color: ${({ theme }) => theme.colors.primary}; color: ${({ theme }) => theme.colors.primary}; }
+  &:disabled { opacity: 0.3; }
+`;
+
+const RemoveButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 3px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  &:hover:not(:disabled) { border-color: #ef4444; color: #ef4444; }
+`;
+
+const EmptyMovieHint = styled.div`
+  margin-top: 8px;
+  padding: 12px;
+  text-align: center;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  border: 1px dashed ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
 `;

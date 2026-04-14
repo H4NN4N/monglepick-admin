@@ -1,12 +1,13 @@
 /**
  * 운영 도구 — 월드컵 후보 영화(WorldcupCandidate) 관리 API.
  *
- * 백엔드 AdminWorldcupCandidateController(/api/v1/admin/worldcup-candidates) 7개 EP.
+ * 백엔드 AdminWorldcupCandidateController(/api/v1/admin/worldcup-candidates) 8개 EP.
  *
+ * - 영화 검색 (신규 후보 등록용, 제목/인기도 범위 검색)
  * - 목록 조회 (페이징 + category 필터)
  * - 단건 조회
  * - 신규 등록 ((movieId, category) UNIQUE)
- * - 메타 수정 (popularity/isActive/adminNote)
+ * - 메타 수정 (isActive/adminNote, popularity는 DB 자동 반영)
  * - 활성화 토글
  * - 인기도 임계값 미만 일괄 비활성화
  * - hard delete
@@ -15,6 +16,11 @@
 import { backendApi } from '@/shared/api/axiosInstance';
 
 const BASE = '/api/v1/admin/worldcup-candidates';
+
+/** 영화 제목/인기도 범위 검색 (월드컵 후보 신규 등록용, 페이지네이션) */
+export function searchMovies(params = {}) {
+  return backendApi.get(`${BASE}/movies/search`, { params });
+}
 
 /** 후보 목록 조회 (페이징) */
 export function fetchCandidates(params = {}) {
@@ -29,6 +35,22 @@ export function fetchCandidate(id) {
 /** 신규 후보 등록 */
 export function createCandidate(payload) {
   return backendApi.post(BASE, payload);
+}
+
+/** 여러 후보를 같은 카테고리로 일괄 등록 */
+export async function createCandidatesBulk({ movieIds, category, adminNote }) {
+  const tasks = (movieIds || []).map((movieId) => createCandidate({
+    movieId,
+    category,
+    adminNote,
+  }));
+  const results = await Promise.allSettled(tasks);
+  return {
+    created: results.filter((result) => result.status === 'fulfilled').length,
+    failed: results
+      .filter((result) => result.status === 'rejected')
+      .map((result) => result.reason?.message || '저장 실패'),
+  };
 }
 
 /** 후보 메타 수정 */
