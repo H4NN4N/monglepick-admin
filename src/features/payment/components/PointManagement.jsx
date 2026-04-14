@@ -3,56 +3,78 @@
  *
  * 두 영역으로 구성된다:
  * 1. 수동 지급/차감 폼 — 관리자가 특정 사용자에게 포인트를 직접 지급하거나 차감
- * 2. 사용자 포인트 이력 조회 — userId 입력 후 변동 이력 테이블 표시 (페이징 포함)
+ * 2. 사용자 포인트 이력 조회 — UserSearchPicker 로 사용자 선택 후 이력 테이블 표시
+ *
+ * 2026-04-14 변경:
+ *  - 백엔드 DTO(PointHistoryItem) 필드 정합화.
+ *    기존: item.id / item.type / item.amount / item.balance / item.reason / item.adminId
+ *    실제: historyId / pointType / pointChange / pointAfter / description / actionType
+ *  - UUID 직접 입력 대신 이메일/닉네임 검색(UserSearchPicker) 사용
+ *  - 수동 지급/차감 폼도 UserSearchPicker 로 사용자 지정
  *
  * @module PointManagement
  */
 
 import { useState, useCallback } from 'react';
 import styled from 'styled-components';
-import { MdSearch } from 'react-icons/md';
 import { manualPointTransfer, fetchPointHistory } from '../api/paymentApi';
 import StatusBadge from '@/shared/components/StatusBadge';
+import UserSearchPicker from '@/shared/components/UserSearchPicker';
 
-/** 포인트 변동 유형 → StatusBadge 매핑 */
+/**
+ * 포인트 변동 유형 → StatusBadge 매핑.
+ * 백엔드 `pointType` 값은 소문자 (earn/spend/refund/revoke/attendance 등) 이므로
+ * 대소문자 무관 매핑을 위해 .toLowerCase() 적용.
+ */
 const POINT_TYPE_MAP = {
-  EARN:        { status: 'success', label: '지급' },
-  DEDUCT:      { status: 'error',   label: '차감' },
-  ATTENDANCE:  { status: 'info',    label: '출석' },
-  PURCHASE:    { status: 'warning', label: '구매' },
-  REFUND:      { status: 'default', label: '환불' },
-  EXPIRATION:  { status: 'default', label: '만료' },
+  earn:       { status: 'success', label: '적립' },
+  spend:      { status: 'error',   label: '차감' },
+  refund:     { status: 'default', label: '환불' },
+  revoke:     { status: 'default', label: '회수' },
+  attendance: { status: 'info',    label: '출석' },
+  purchase:   { status: 'warning', label: '구매' },
+  expiration: { status: 'default', label: '만료' },
+  manual:     { status: 'info',    label: '수동' },
 };
+
+function resolveTypeBadge(pointType) {
+  if (!pointType) return { status: 'default', label: '-' };
+  const key = String(pointType).toLowerCase();
+  return POINT_TYPE_MAP[key] ?? { status: 'default', label: pointType };
+}
 
 /** 날짜 포맷 (YYYY.MM.DD HH:MM) */
 function formatDate(dateStr) {
   if (!dateStr) return '-';
   const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return '-';
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** 포인트 부호 표시 (+/-) */
-function formatPointDelta(type, amount) {
-  const isDeduct = type === 'DEDUCT' || type === 'PURCHASE' || type === 'EXPIRATION';
-  return isDeduct ? `-${amount?.toLocaleString()}` : `+${amount?.toLocaleString()}`;
+/** 포인트 부호 표시 — 백엔드 pointChange 는 음수/양수 모두 가능 */
+function formatPointChange(change) {
+  if (change == null) return '-';
+  const n = Number(change);
+  if (Number.isNaN(n)) return '-';
+  const sign = n > 0 ? '+' : (n < 0 ? '-' : '');
+  return `${sign}${Math.abs(n).toLocaleString()}`;
 }
 
 export default function PointManagement() {
   /* ── 수동 지급/차감 폼 상태 ── */
+  const [transferUser, setTransferUser] = useState(null);
   const [transferForm, setTransferForm] = useState({
-    userId: '',
     amount: '',
     reason: '',
-    type: 'EARN', // EARN | DEDUCT
+    type: 'EARN',
   });
   const [transferLoading, setTransferLoading] = useState(false);
   const [transferError, setTransferError] = useState(null);
   const [transferSuccess, setTransferSuccess] = useState(null);
 
   /* ── 이력 조회 상태 ── */
-  const [historyUserId, setHistoryUserId] = useState('');
-  const [historyInput, setHistoryInput] = useState(''); // 입력 중인 값
+  const [historyUser, setHistoryUser] = useState(null);
   const [history, setHistory] = useState([]);
   const [historyTotal, setHistoryTotal] = useState(0);
   const [historyPages, setHistoryPages] = useState(0);
@@ -73,14 +95,13 @@ export default function PointManagement() {
   async function handleTransferSubmit(e) {
     e.preventDefault();
 
-    const { userId, amount, reason, type } = transferForm;
-
-    if (!userId.trim()) {
-      setTransferError('사용자 ID를 입력해주세요.');
+    if (!transferUser?.userId) {
+      setTransferError('사용자를 선택해주세요. (이메일 또는 닉네임으로 검색)');
       return;
     }
+    const { amount, reason, type } = transferForm;
     const amountNum = Number(amount);
-    if (!amount || isNaN(amountNum) || amountNum <= 0) {
+    if (!amount || Number.isNaN(amountNum) || amountNum <= 0) {
       setTransferError('포인트 금액을 올바르게 입력해주세요.');
       return;
     }
@@ -93,26 +114,27 @@ export default function PointManagement() {
       setTransferLoading(true);
       setTransferError(null);
       const result = await manualPointTransfer({
-        userId: userId.trim(),
+        userId: transferUser.userId,
         amount: amountNum,
         reason: reason.trim(),
         type,
       });
 
       const actionLabel = type === 'EARN' ? '지급' : '차감';
-      const balanceMsg = result?.balance != null
-        ? ` (현재 잔액: ${result.balance.toLocaleString()}P)`
+      /* 백엔드 AdminManualPointResponse 필드명은 newBalance */
+      const balance = result?.newBalance ?? result?.balance;
+      const balanceMsg = balance != null
+        ? ` (현재 잔액: ${Number(balance).toLocaleString()}P)`
         : '';
       setTransferSuccess(
         `${amountNum.toLocaleString()}P ${actionLabel} 완료${balanceMsg}`
       );
 
-      /* 폼 초기화 (userId 유지, 이력 자동 갱신) */
-      setTransferForm((prev) => ({ ...prev, amount: '', reason: '' }));
+      setTransferForm({ amount: '', reason: '', type });
 
-      /* 이력이 해당 사용자 조회 중이면 자동 갱신 */
-      if (historyUserId === userId.trim()) {
-        loadHistory(userId.trim(), 0);
+      /* 동일 사용자 이력 탭을 보고 있으면 자동 갱신 */
+      if (historyUser?.userId === transferUser.userId) {
+        loadHistory(transferUser.userId, 0);
       }
     } catch (err) {
       setTransferError(err.message || '처리 중 오류가 발생했습니다.');
@@ -142,13 +164,16 @@ export default function PointManagement() {
     }
   }, []);
 
-  /** 이력 조회 폼 제출 */
-  function handleHistorySearch(e) {
-    e.preventDefault();
-    const uid = historyInput.trim();
-    if (!uid) return;
-    setHistoryUserId(uid);
-    loadHistory(uid, 0);
+  /** 이력 픽커 사용자 선택 변경 */
+  function handleHistoryUserChange(user) {
+    setHistoryUser(user);
+    if (user?.userId) {
+      loadHistory(user.userId, 0);
+    } else {
+      setHistory([]);
+      setHistoryTotal(0);
+      setHistoryPages(0);
+    }
   }
 
   return (
@@ -183,14 +208,14 @@ export default function PointManagement() {
                 </TypeToggle>
               </FormGroup>
 
-              {/* 사용자 ID */}
-              <FormGroup>
-                <FormLabel>사용자 ID <RequiredMark>*</RequiredMark></FormLabel>
-                <Input
-                  type="text"
-                  value={transferForm.userId}
-                  onChange={(e) => handleTransferChange('userId', e.target.value)}
-                  placeholder="user_xxxxxxxx"
+              {/* 사용자 선택 — 이메일/닉네임 검색 */}
+              <FormGroup $full>
+                <FormLabel>사용자 <RequiredMark>*</RequiredMark></FormLabel>
+                <UserSearchPicker
+                  selectedUser={transferUser}
+                  onChange={setTransferUser}
+                  placeholder="이메일 또는 닉네임으로 검색"
+                  disabled={transferLoading}
                 />
               </FormGroup>
 
@@ -218,12 +243,11 @@ export default function PointManagement() {
                   value={transferForm.reason}
                   onChange={(e) => handleTransferChange('reason', e.target.value)}
                   placeholder="예: 이벤트 보상, 서비스 장애 보상, 어뷰징 차감..."
-                  maxLength={200}
+                  maxLength={500}
                 />
               </FormGroup>
             </FormGrid>
 
-            {/* 에러 / 성공 메시지 */}
             {transferError && <AlertMsg $type="error">{transferError}</AlertMsg>}
             {transferSuccess && <AlertMsg $type="success">{transferSuccess}</AlertMsg>}
 
@@ -248,26 +272,23 @@ export default function PointManagement() {
       <Section>
         <SectionTitle>포인트 변동 이력 조회</SectionTitle>
 
-        {/* 검색 폼 */}
-        <SearchForm onSubmit={handleHistorySearch}>
-          <SearchInput
-            type="text"
-            value={historyInput}
-            onChange={(e) => setHistoryInput(e.target.value)}
-            placeholder="사용자 ID 입력 후 Enter 또는 조회 버튼"
+        <SearchRow>
+          <SearchLabel>사용자 검색</SearchLabel>
+          <UserSearchPicker
+            selectedUser={historyUser}
+            onChange={handleHistoryUserChange}
+            placeholder="이메일 또는 닉네임으로 검색"
           />
-          <SearchButton type="submit" disabled={historyLoading || !historyInput.trim()}>
-            <MdSearch size={16} />
-            조회
-          </SearchButton>
-        </SearchForm>
+        </SearchRow>
 
-        {/* 이력 테이블 */}
-        {historyUserId && (
+        {historyUser && (
           <>
             <HistoryHeader>
               <HistoryUserId>
-                사용자: <strong>{historyUserId}</strong>
+                사용자: <strong>{historyUser.nickname ?? historyUser.email ?? historyUser.userId}</strong>
+                {(historyUser.nickname || historyUser.email) && (
+                  <UserIdSub title={historyUser.userId}> ({historyUser.userId})</UserIdSub>
+                )}
               </HistoryUserId>
               {!historyLoading && (
                 <HistoryCount>{historyTotal.toLocaleString()}건</HistoryCount>
@@ -286,33 +307,37 @@ export default function PointManagement() {
                   <thead>
                     <tr>
                       <Th>유형</Th>
+                      <Th>활동 코드</Th>
                       <Th>변동량</Th>
                       <Th>잔액</Th>
-                      <Th>사유</Th>
-                      <Th>처리자</Th>
+                      <Th>설명</Th>
+                      <Th>참조 ID</Th>
                       <Th>일시</Th>
                     </tr>
                   </thead>
                   <tbody>
                     {history.map((item) => {
-                      const badge = POINT_TYPE_MAP[item.type] ?? {
-                        status: 'default',
-                        label: item.type ?? '-',
-                      };
-                      const delta = formatPointDelta(item.type, item.amount);
-                      const isDelta = item.type === 'EARN' || item.type === 'ATTENDANCE';
+                      const badge = resolveTypeBadge(item.pointType);
+                      const isPositive = Number(item.pointChange) > 0;
 
                       return (
-                        <tr key={item.id}>
+                        <tr key={item.historyId}>
                           <Td>
                             <StatusBadge status={badge.status} label={badge.label} />
                           </Td>
+                          <Td muted>{item.actionType ?? '-'}</Td>
                           <Td>
-                            <DeltaValue $positive={isDelta}>{delta}P</DeltaValue>
+                            <DeltaValue $positive={isPositive}>
+                              {formatPointChange(item.pointChange)}P
+                            </DeltaValue>
                           </Td>
-                          <Td mono>{item.balance?.toLocaleString() ?? '-'}P</Td>
-                          <Td muted>{item.reason ?? '-'}</Td>
-                          <Td muted>{item.adminId ?? '시스템'}</Td>
+                          <Td mono>
+                            {item.pointAfter != null
+                              ? `${Number(item.pointAfter).toLocaleString()}P`
+                              : '-'}
+                          </Td>
+                          <Td muted>{item.description ?? '-'}</Td>
+                          <Td muted mono>{item.referenceId ?? '-'}</Td>
                           <Td mono>{formatDate(item.createdAt)}</Td>
                         </tr>
                       );
@@ -322,18 +347,17 @@ export default function PointManagement() {
               )}
             </TableWrapper>
 
-            {/* 페이징 */}
             {historyPages > 1 && (
               <Pagination>
                 <PageButton
-                  onClick={() => loadHistory(historyUserId, historyPage - 1)}
+                  onClick={() => loadHistory(historyUser.userId, historyPage - 1)}
                   disabled={historyPage === 0 || historyLoading}
                 >
                   이전
                 </PageButton>
                 <PageInfo>{historyPage + 1} / {historyPages}</PageInfo>
                 <PageButton
-                  onClick={() => loadHistory(historyUserId, historyPage + 1)}
+                  onClick={() => loadHistory(historyUser.userId, historyPage + 1)}
                   disabled={historyPage >= historyPages - 1 || historyLoading}
                 >
                   다음
@@ -361,8 +385,6 @@ const SectionTitle = styled.h3`
   margin-bottom: ${({ theme }) => theme.spacing.lg};
 `;
 
-/* ── 지급/차감 폼 ── */
-
 const FormCard = styled.div`
   background: ${({ theme }) => theme.colors.bgCard};
   border: 1px solid ${({ theme }) => theme.colors.border};
@@ -373,7 +395,7 @@ const FormCard = styled.div`
 
 const FormGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: ${({ theme }) => theme.spacing.xl};
 `;
 
@@ -417,10 +439,6 @@ const TypeButton = styled.button`
       ? `color: #ffffff; background: ${theme.colors.success};`
       : `color: #ffffff; background: ${theme.colors.error};`;
   }}
-
-  &:hover:not([data-active='true']) {
-    background: ${({ theme }) => theme.colors.bgHover};
-  }
 `;
 
 const InputWithUnit = styled.div`
@@ -445,7 +463,6 @@ const Input = styled.input`
     border-color: ${({ theme }) => theme.colors.primary};
   }
 
-  /* 숫자 스피너 제거 */
   &::-webkit-outer-spin-button,
   &::-webkit-inner-spin-button {
     -webkit-appearance: none;
@@ -496,46 +513,19 @@ const SubmitButton = styled.button`
   &:disabled { opacity: 0.5; cursor: not-allowed; }
 `;
 
-/* ── 이력 조회 ── */
-
-const SearchForm = styled.form`
-  display: flex;
-  gap: ${({ theme }) => theme.spacing.md};
-  margin-bottom: ${({ theme }) => theme.spacing.lg};
-`;
-
-const SearchInput = styled.input`
-  flex: 1;
-  max-width: 360px;
-  height: 36px;
-  padding: 0 ${({ theme }) => theme.spacing.md};
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 6px;
-  font-size: ${({ theme }) => theme.fontSizes.md};
-  color: ${({ theme }) => theme.colors.textPrimary};
-  background: ${({ theme }) => theme.colors.bgCard};
-
-  &:focus {
-    outline: none;
-    border-color: ${({ theme }) => theme.colors.primary};
-  }
-`;
-
-const SearchButton = styled.button`
+const SearchRow = styled.div`
   display: flex;
   align-items: center;
-  gap: ${({ theme }) => theme.spacing.xs};
-  height: 36px;
-  padding: 0 ${({ theme }) => theme.spacing.lg};
-  border-radius: 6px;
+  gap: ${({ theme }) => theme.spacing.md};
+  margin-bottom: ${({ theme }) => theme.spacing.lg};
+  flex-wrap: wrap;
+`;
+
+const SearchLabel = styled.span`
   font-size: ${({ theme }) => theme.fontSizes.sm};
   font-weight: ${({ theme }) => theme.fontWeights.medium};
-  color: #ffffff;
-  background: ${({ theme }) => theme.colors.primary};
-  transition: background ${({ theme }) => theme.transitions.fast};
-
-  &:hover:not(:disabled) { background: ${({ theme }) => theme.colors.primaryHover}; }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
+  color: ${({ theme }) => theme.colors.textSecondary};
+  white-space: nowrap;
 `;
 
 const HistoryHeader = styled.div`
@@ -543,6 +533,8 @@ const HistoryHeader = styled.div`
   align-items: center;
   justify-content: space-between;
   margin-bottom: ${({ theme }) => theme.spacing.md};
+  flex-wrap: wrap;
+  gap: ${({ theme }) => theme.spacing.sm};
 `;
 
 const HistoryUserId = styled.span`
@@ -551,8 +543,13 @@ const HistoryUserId = styled.span`
 
   strong {
     color: ${({ theme }) => theme.colors.textPrimary};
-    font-family: ${({ theme }) => theme.fonts.mono};
   }
+`;
+
+const UserIdSub = styled.span`
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  font-family: ${({ theme }) => theme.fonts.mono};
 `;
 
 const HistoryCount = styled.span`
@@ -571,7 +568,7 @@ const TableWrapper = styled.div`
 const Table = styled.table`
   width: 100%;
   border-collapse: collapse;
-  min-width: 600px;
+  min-width: 700px;
 `;
 
 const Th = styled.th`

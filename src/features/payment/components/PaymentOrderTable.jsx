@@ -3,9 +3,18 @@
  *
  * 관리자가 전체 결제 주문을 조회하고 환불 처리할 수 있다.
  * - 상태 필터 (전체/COMPLETED/PENDING/FAILED/REFUNDED)
+ * - 유저 검색 (이메일/닉네임) — UserSearchPicker
+ * - `orderTypeFilter` prop — 상위 탭(전체/개별 결제/포인트 단독 결제)에서 지정하는 주문 유형 고정 필터
  * - 페이징 (page, size)
  * - 환불 버튼 클릭 시 RefundModal 오픈
- * - 보상 실패 건 별도 섹션으로 표시 및 수동 보상 처리
+ * - 보상 실패 건 별도 섹션으로 표시 및 수동 보상 처리 (ConfirmModal)
+ *
+ * 2026-04-14 변경:
+ *  - 백엔드 DTO(PaymentOrderSummary) 필드 정합화
+ *      orderType / pgProvider / failedReason / completedAt (기존 type/paymentMethod/failReason)
+ *  - window.confirm / alert / prompt 제거 → ConfirmModal 로 교체
+ *  - 닉네임/이메일 검색 및 표시 지원
+ *  - `orderTypeFilter` prop 신설 — PaymentPage 에서 "개별 결제"(SUBSCRIPTION), "포인트 단독 결제"(POINT_PACK) 탭 추가 지원
  *
  * @module PaymentOrderTable
  */
@@ -19,6 +28,8 @@ import {
   compensateOrder,
 } from '../api/paymentApi';
 import StatusBadge from '@/shared/components/StatusBadge';
+import ConfirmModal from '@/shared/components/ConfirmModal';
+import UserSearchPicker from '@/shared/components/UserSearchPicker';
 import RefundModal from './RefundModal';
 
 /** 결제 상태 → StatusBadge status 매핑 */
@@ -27,9 +38,10 @@ const STATUS_MAP = {
   PENDING:   { status: 'warning', label: '대기' },
   FAILED:    { status: 'error',   label: '실패' },
   REFUNDED:  { status: 'info',    label: '환불' },
+  COMPENSATION_FAILED: { status: 'error', label: '보상실패' },
 };
 
-/** 결제 유형 한국어 */
+/** 주문 유형 한국어 (백엔드 orderType = SUBSCRIPTION | POINT_PACK) */
 const TYPE_LABEL = {
   SUBSCRIPTION: '구독',
   POINT_PACK:   '포인트 팩',
@@ -49,11 +61,24 @@ const STATUS_FILTERS = [
 function formatDate(dateStr) {
   if (!dateStr) return '-';
   const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return '-';
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export default function PaymentOrderTable() {
+/**
+ * 결제 주문 테이블.
+ *
+ * @param {Object} props
+ * @param {string} [props.orderTypeFilter] - 주문 유형 고정 필터 (SUBSCRIPTION|POINT_PACK). 미지정 시 전체.
+ * @param {string} [props.title]           - 상단 섹션 타이틀 (기본 "결제 내역")
+ * @param {boolean} [props.showFailedSection=true] - 보상 실패 건 섹션 노출 여부 (전체 탭에서만)
+ */
+export default function PaymentOrderTable({
+  orderTypeFilter,
+  title,
+  showFailedSection = true,
+}) {
   /* 결제 목록 상태 */
   const [orders, setOrders] = useState([]);
   const [totalElements, setTotalElements] = useState(0);
@@ -63,25 +88,29 @@ export default function PaymentOrderTable() {
 
   /* 필터/페이징 상태 */
   const [statusFilter, setStatusFilter] = useState('');
+  const [selectedUser, setSelectedUser] = useState(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
 
   /* 보상 실패 목록 상태 */
   const [failedOrders, setFailedOrders] = useState([]);
   const [failedLoading, setFailedLoading] = useState(false);
-  const [compensating, setCompensating] = useState(null); // 처리 중인 orderId
+  /* 개별 보상 모달 대상 */
+  const [compensateTarget, setCompensateTarget] = useState(null);
+  const [compensateLoading, setCompensateLoading] = useState(false);
+  const [compensateError, setCompensateError] = useState(null);
 
-  /*
-   * 대량 보상 선택 상태 — 2026-04-09 P0-② 확장.
-   * 기존에는 개별 "수동 보상" 버튼만 있어 여러 건 처리 시 반복 작업이 필요했다.
-   * 체크박스 선택 + 일괄 처리로 운영 효율을 높인다.
-   */
+  /* 대량 보상 선택 상태 */
   const [selectedFailedIds, setSelectedFailedIds] = useState(() => new Set());
-  /** 일괄 보상 진행 중 플래그 — 버튼/체크박스를 한꺼번에 disabled 처리 */
+  const [bulkCompensateOpen, setBulkCompensateOpen] = useState(false);
   const [bulkCompensating, setBulkCompensating] = useState(false);
+  const [bulkError, setBulkError] = useState(null);
+
+  /* 결과 안내 모달 (alert 대체) */
+  const [resultAlert, setResultAlert] = useState(null); // { title, description }
 
   /* 환불 모달 상태 */
-  const [refundTarget, setRefundTarget] = useState(null); // 선택된 주문
+  const [refundTarget, setRefundTarget] = useState(null);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
 
   /** 결제 목록 조회 */
@@ -91,39 +120,49 @@ export default function PaymentOrderTable() {
       setError(null);
       const params = { page, size: PAGE_SIZE };
       if (statusFilter) params.status = statusFilter;
+      if (orderTypeFilter) params.orderType = orderTypeFilter;
+      if (selectedUser?.userId) params.userId = selectedUser.userId;
       const result = await fetchPaymentOrders(params);
-      setOrders(result?.content ?? []);
-      setTotalElements(result?.totalElements ?? 0);
+
+      /* 백엔드가 orderType/userId 필터를 미지원하더라도 최소한의 UX 보장을 위한 클라이언트 필터 fallback */
+      let rows = result?.content ?? [];
+      if (orderTypeFilter) {
+        rows = rows.filter((r) => r.orderType === orderTypeFilter);
+      }
+      if (selectedUser?.userId) {
+        rows = rows.filter((r) => r.userId === selectedUser.userId);
+      }
+
+      setOrders(rows);
+      setTotalElements(result?.totalElements ?? rows.length);
       setTotalPages(result?.totalPages ?? 0);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter]);
+  }, [page, statusFilter, orderTypeFilter, selectedUser]);
 
   /** 보상 실패 목록 조회 */
   const loadFailedOrders = useCallback(async () => {
+    if (!showFailedSection) return;
     try {
       setFailedLoading(true);
       const result = await fetchFailedOrders();
       setFailedOrders(Array.isArray(result) ? result : []);
-      /* 목록 재조회 시 선택 상태도 초기화 — 사라진 항목에 대한 잔존 선택 방지 */
       setSelectedFailedIds(new Set());
     } catch {
-      /* 보상 실패 조회 오류는 무시 (메인 목록에 영향 없음) */
       setFailedOrders([]);
       setSelectedFailedIds(new Set());
     } finally {
       setFailedLoading(false);
     }
-  }, []);
+  }, [showFailedSection]);
 
   // ──────────────────────────────────────────────────────────
-  // 대량 보상 선택/실행 (2026-04-09 P0-② 확장)
+  // 대량 보상 선택/실행
   // ──────────────────────────────────────────────────────────
 
-  /** 개별 행 체크박스 토글 */
   function toggleSelectFailed(orderId) {
     setSelectedFailedIds((prev) => {
       const next = new Set(prev);
@@ -133,7 +172,6 @@ export default function PaymentOrderTable() {
     });
   }
 
-  /** 헤더 체크박스 — 모든 실패 주문 선택/해제 */
   function toggleSelectAllFailed() {
     setSelectedFailedIds((prev) => {
       const allIds = failedOrders.map((o) => o.orderId);
@@ -143,59 +181,42 @@ export default function PaymentOrderTable() {
     });
   }
 
-  /** 선택 전체 해제 */
   function clearFailedSelection() {
     setSelectedFailedIds(new Set());
   }
 
-  /**
-   * 일괄 수동 보상 처리.
-   *
-   * 공통 adminNote 를 한 번만 입력받아 선택된 모든 주문에 동일하게 적용한다.
-   * Promise.allSettled 로 병렬 호출하며, 한 건 실패가 전체를 중단시키지 않는다.
-   * 처리 결과(성공/실패 건수)를 집계하여 안내한 뒤 목록을 재조회한다.
-   */
-  async function runBulkCompensate() {
+  /** 일괄 보상 모달 열기 */
+  function openBulkCompensate() {
+    if (selectedFailedIds.size === 0) return;
+    setBulkError(null);
+    setBulkCompensateOpen(true);
+  }
+
+  /** 일괄 보상 모달 확인 */
+  async function runBulkCompensate(note) {
     const ids = Array.from(selectedFailedIds);
     if (ids.length === 0) return;
 
-    // 공통 관리자 메모 입력 — 모든 선택 건에 동일 메모가 기록된다
-    // eslint-disable-next-line no-alert
-    const note = window.prompt(
-      `선택된 ${ids.length}건에 동일하게 적용될 관리자 메모를 입력해주세요.\n\n` +
-      '감사 로그(admin_audit_logs)에 개별 건마다 기록됩니다.\n' +
-      '(예: Toss 콘솔에서 포인트 일괄 지급 완료)',
-      '',
-    );
-    if (note === null) return;
-    if (!note.trim()) {
-      // eslint-disable-next-line no-alert
-      alert('관리자 메모는 필수입니다.');
-      return;
-    }
-
     setBulkCompensating(true);
+    setBulkError(null);
     try {
       const results = await Promise.allSettled(
-        ids.map((orderId) => compensateOrder(orderId, { adminNote: note.trim() })),
+        ids.map((orderId) => compensateOrder(orderId, { adminNote: note })),
       );
       const succeeded = results.filter((r) => r.status === 'fulfilled').length;
-      const failed    = results.length - succeeded;
+      const failed = results.length - succeeded;
       const firstError = results.find((r) => r.status === 'rejected');
 
-      let message = `일괄 보상 완료\n성공: ${succeeded}건, 실패: ${failed}건`;
+      let description = `성공: ${succeeded}건, 실패: ${failed}건`;
       if (firstError) {
-        message += `\n\n첫 실패 사유: ${firstError.reason?.message ?? '알 수 없음'}`;
+        description += `\n첫 실패 사유: ${firstError.reason?.message ?? '알 수 없음'}`;
       }
-      // eslint-disable-next-line no-alert
-      alert(message);
+      setBulkCompensateOpen(false);
+      setResultAlert({ title: '일괄 보상 결과', description });
     } catch (err) {
-      // Promise.allSettled 는 reject 하지 않지만 예기치 못한 예외 대비
-      // eslint-disable-next-line no-alert
-      alert(`일괄 보상 중 오류 발생: ${err?.message ?? '알 수 없음'}`);
+      setBulkError(err?.message ?? '일괄 보상 중 오류 발생');
     } finally {
       setBulkCompensating(false);
-      /* 성공/실패 무관하게 목록 재조회 — 일부 성공한 건도 상태가 바뀌었을 수 있음 */
       loadFailedOrders();
       loadOrders();
     }
@@ -216,6 +237,11 @@ export default function PaymentOrderTable() {
     setPage(0);
   }
 
+  function handleUserChange(user) {
+    setSelectedUser(user);
+    setPage(0);
+  }
+
   /** 환불 모달 오픈 */
   function openRefund(order) {
     setRefundTarget(order);
@@ -227,42 +253,38 @@ export default function PaymentOrderTable() {
     loadOrders();
   }
 
-  /**
-   * 수동 보상 처리.
-   *
-   * 백엔드 `AdminCompensateRequest` 는 `adminNote`를 필수로 요구하므로
-   * prompt 로 관리자 메모를 받아 함께 전송한다. 공백만 입력한 경우 취소된다.
-   */
-  async function handleCompensate(orderId) {
-    const note = window.prompt(
-      `주문 ${orderId}을(를) 수동 보상 처리합니다.\n\n` +
-      '감사 로그에 남길 관리자 메모를 입력해주세요.\n' +
-      '(예: Toss 콘솔에서 포인트 수동 지급 완료)',
-      '',
-    );
-    /* null = 취소, 빈 문자열 = 필수 필드 누락으로 차단 */
-    if (note === null) return;
-    if (!note.trim()) {
-      alert('관리자 메모는 필수입니다.');
-      return;
-    }
+  /** 개별 보상 모달 열기 */
+  function openCompensate(order) {
+    setCompensateError(null);
+    setCompensateTarget(order);
+  }
 
+  /** 개별 보상 모달 확인 */
+  async function runCompensate(note) {
+    if (!compensateTarget) return;
+    setCompensateLoading(true);
+    setCompensateError(null);
     try {
-      setCompensating(orderId);
-      await compensateOrder(orderId, { adminNote: note.trim() });
+      await compensateOrder(compensateTarget.orderId, { adminNote: note });
+      setCompensateTarget(null);
       loadFailedOrders();
       loadOrders();
     } catch (err) {
-      alert(`보상 처리 실패: ${err.message}`);
+      setCompensateError(err?.message ?? '보상 처리 실패');
     } finally {
-      setCompensating(null);
+      setCompensateLoading(false);
     }
+  }
+
+  /** 유저 표시 우선순위: nickname > email > userId */
+  function userLabel(order) {
+    return order.nickname ?? order.email ?? order.userId ?? '-';
   }
 
   return (
     <>
       {/* ── 보상 실패 섹션 ── */}
-      {(failedOrders.length > 0 || failedLoading) && (
+      {showFailedSection && (failedOrders.length > 0 || failedLoading) && (
         <Section>
           <SectionHeader>
             <SectionTitle>
@@ -277,10 +299,7 @@ export default function PaymentOrderTable() {
             결제는 완료됐으나 포인트/구독 지급에 실패한 건입니다. 수동 보상 처리가 필요합니다.
           </AlertBanner>
 
-          {/*
-            대량 보상 선택 바 — 2026-04-09 P0-② 확장.
-            하나 이상 선택된 경우에만 표시하며, 공통 adminNote 로 Promise.allSettled 병렬 처리.
-          */}
+          {/* 대량 보상 바 */}
           {selectedFailedIds.size > 0 && (
             <BulkBar>
               <BulkInfo>
@@ -289,7 +308,7 @@ export default function PaymentOrderTable() {
               <BulkActions>
                 <BulkRunButton
                   type="button"
-                  onClick={runBulkCompensate}
+                  onClick={openBulkCompensate}
                   disabled={bulkCompensating}
                   title="선택한 실패 주문 일괄 수동 보상"
                 >
@@ -314,7 +333,6 @@ export default function PaymentOrderTable() {
               <Table>
                 <thead>
                   <tr>
-                    {/* 헤더 체크박스 — 전체 선택/해제 (indeterminate 포함) */}
                     <Th style={{ width: '36px' }}>
                       <FailedHeaderCheckbox
                         orders={failedOrders}
@@ -337,7 +355,6 @@ export default function PaymentOrderTable() {
                     const isChecked = selectedFailedIds.has(order.orderId);
                     return (
                       <tr key={order.orderId}>
-                        {/* 행 체크박스 — 독립 셀이므로 stopPropagation 불필요 */}
                         <Td>
                           <RowCheckbox
                             type="checkbox"
@@ -348,18 +365,25 @@ export default function PaymentOrderTable() {
                           />
                         </Td>
                         <Td mono>{order.orderId}</Td>
-                        <Td>{order.userId ?? '-'}</Td>
-                        <Td>{TYPE_LABEL[order.type] ?? order.type ?? '-'}</Td>
+                        <Td>
+                          <UserCell>
+                            <UserMain>{userLabel(order)}</UserMain>
+                            {(order.nickname || order.email) && order.userId && (
+                              <UserSub title={order.userId}>{order.userId}</UserSub>
+                            )}
+                          </UserCell>
+                        </Td>
+                        <Td>{TYPE_LABEL[order.orderType] ?? order.orderType ?? '-'}</Td>
                         <Td mono>{order.amount?.toLocaleString()}원</Td>
-                        <Td muted>{order.failReason ?? '-'}</Td>
+                        <Td muted>{order.failedReason ?? '-'}</Td>
                         <Td mono>{formatDate(order.createdAt)}</Td>
                         <Td>
                           <ActionButton
                             $variant="warning"
-                            disabled={compensating === order.orderId || bulkCompensating}
-                            onClick={() => handleCompensate(order.orderId)}
+                            disabled={bulkCompensating || compensateLoading}
+                            onClick={() => openCompensate(order)}
                           >
-                            {compensating === order.orderId ? '처리 중' : '수동 보상'}
+                            수동 보상
                           </ActionButton>
                         </Td>
                       </tr>
@@ -375,9 +399,10 @@ export default function PaymentOrderTable() {
       {/* ── 결제 내역 목록 ── */}
       <Section>
         <SectionHeader>
-          <SectionTitle>결제 내역 ({totalElements.toLocaleString()}건)</SectionTitle>
+          <SectionTitle>
+            {title ?? '결제 내역'} ({totalElements.toLocaleString()}건)
+          </SectionTitle>
           <HeaderRight>
-            {/* 상태 필터 버튼 그룹 */}
             <FilterGroup>
               {STATUS_FILTERS.map(({ value, label }) => (
                 <FilterButton
@@ -395,6 +420,16 @@ export default function PaymentOrderTable() {
           </HeaderRight>
         </SectionHeader>
 
+        {/* 유저 검색 */}
+        <UserSearchRow>
+          <UserSearchLabel>사용자 검색</UserSearchLabel>
+          <UserSearchPicker
+            selectedUser={selectedUser}
+            onChange={handleUserChange}
+            placeholder="이메일 또는 닉네임으로 검색"
+          />
+        </UserSearchRow>
+
         {error && <ErrorMsg>{error}</ErrorMsg>}
 
         <TableWrapper>
@@ -410,7 +445,8 @@ export default function PaymentOrderTable() {
                   <Th>사용자</Th>
                   <Th>유형</Th>
                   <Th>금액</Th>
-                  <Th>결제 수단</Th>
+                  <Th>지급 포인트</Th>
+                  <Th>PG</Th>
                   <Th>상태</Th>
                   <Th>일시</Th>
                   <Th>액션</Th>
@@ -424,10 +460,22 @@ export default function PaymentOrderTable() {
                   return (
                     <tr key={order.orderId}>
                       <Td mono>{order.orderId}</Td>
-                      <Td>{order.userId ?? '-'}</Td>
-                      <Td>{TYPE_LABEL[order.type] ?? order.type ?? '-'}</Td>
+                      <Td>
+                        <UserCell>
+                          <UserMain>{userLabel(order)}</UserMain>
+                          {(order.nickname || order.email) && order.userId && (
+                            <UserSub title={order.userId}>{order.userId}</UserSub>
+                          )}
+                        </UserCell>
+                      </Td>
+                      <Td>{TYPE_LABEL[order.orderType] ?? order.orderType ?? '-'}</Td>
                       <Td mono>{order.amount?.toLocaleString()}원</Td>
-                      <Td>{order.paymentMethod ?? '-'}</Td>
+                      <Td mono>
+                        {order.pointsAmount != null
+                          ? `${order.pointsAmount.toLocaleString()}P`
+                          : '-'}
+                      </Td>
+                      <Td>{order.pgProvider ?? '-'}</Td>
                       <Td>
                         <StatusBadge status={badge.status} label={badge.label} />
                       </Td>
@@ -472,7 +520,7 @@ export default function PaymentOrderTable() {
         )}
       </Section>
 
-      {/* 환불 모달 */}
+      {/* 환불 모달 (기존 유지) */}
       <RefundModal
         isOpen={refundModalOpen}
         order={refundTarget}
@@ -482,22 +530,68 @@ export default function PaymentOrderTable() {
         }}
         onSuccess={handleRefundSuccess}
       />
+
+      {/* 개별 보상 모달 */}
+      <ConfirmModal
+        isOpen={!!compensateTarget}
+        title="수동 보상 처리"
+        description={
+          compensateTarget
+            ? `주문 ${compensateTarget.orderId} 을(를) COMPENSATION_FAILED → COMPLETED 로 복구합니다.\n감사 로그에 남길 관리자 메모를 입력해주세요.`
+            : null
+        }
+        confirmText="보상 처리"
+        cancelText="취소"
+        variant="warning"
+        withReason
+        reasonLabel="관리자 메모"
+        reasonPlaceholder="예: Toss 콘솔에서 포인트 수동 지급 완료"
+        reasonRequired
+        loading={compensateLoading}
+        error={compensateError}
+        onConfirm={runCompensate}
+        onClose={() => {
+          if (!compensateLoading) setCompensateTarget(null);
+        }}
+      />
+
+      {/* 일괄 보상 모달 */}
+      <ConfirmModal
+        isOpen={bulkCompensateOpen}
+        title="일괄 보상 처리"
+        description={`선택된 ${selectedFailedIds.size}건에 동일하게 적용될 관리자 메모를 입력해주세요.\n감사 로그(admin_audit_logs)에 개별 건마다 기록됩니다.`}
+        confirmText="일괄 보상"
+        cancelText="취소"
+        variant="warning"
+        withReason
+        reasonLabel="공통 관리자 메모"
+        reasonPlaceholder="예: Toss 콘솔에서 포인트 일괄 지급 완료"
+        reasonRequired
+        loading={bulkCompensating}
+        error={bulkError}
+        onConfirm={runBulkCompensate}
+        onClose={() => {
+          if (!bulkCompensating) setBulkCompensateOpen(false);
+        }}
+      />
+
+      {/* 결과 안내 모달 */}
+      <ConfirmModal
+        isOpen={!!resultAlert}
+        title={resultAlert?.title ?? ''}
+        description={resultAlert?.description ?? ''}
+        confirmText="확인"
+        hideCancel
+        variant="primary"
+        onConfirm={() => setResultAlert(null)}
+        onClose={() => setResultAlert(null)}
+      />
     </>
   );
 }
 
 /**
- * 실패 주문 테이블 헤더 체크박스 — indeterminate(일부 선택) 상태 제어용 소형 컴포넌트.
- *
- * React 는 input 의 {@code indeterminate} 속성을 props 로 직접 세팅할 수 없어 ref 로
- * DOM 에 부여해야 한다. 본체 컴포넌트에 섞으면 가독성이 떨어지므로 별도 함수 컴포넌트로
- * 분리한다. 2026-04-09 P0-② 추가.
- *
- * @param {Object}   props
- * @param {Array}    props.orders      현재 표시 중인 실패 주문 목록
- * @param {Set}      props.selectedIds 선택된 orderId 집합
- * @param {Function} props.onToggle    토글 콜백
- * @param {boolean}  props.disabled    비활성화 여부
+ * 실패 주문 테이블 헤더 체크박스 — indeterminate 상태 제어용.
  */
 function FailedHeaderCheckbox({ orders, selectedIds, onToggle, disabled }) {
   const ref = useRef(null);
@@ -594,6 +688,21 @@ const RefreshButton = styled.button`
   &:disabled { opacity: 0.5; }
 `;
 
+const UserSearchRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.md};
+  margin-bottom: ${({ theme }) => theme.spacing.lg};
+  flex-wrap: wrap;
+`;
+
+const UserSearchLabel = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  white-space: nowrap;
+`;
+
 const AlertBanner = styled.div`
   background: ${({ theme }) => theme.colors.warningBg};
   border: 1px solid #fde68a;
@@ -615,7 +724,7 @@ const TableWrapper = styled.div`
 const Table = styled.table`
   width: 100%;
   border-collapse: collapse;
-  min-width: 800px;
+  min-width: 900px;
 `;
 
 const Th = styled.th`
@@ -645,6 +754,27 @@ const Td = styled.td`
   }
 `;
 
+const UserCell = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+`;
+
+const UserMain = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ theme }) => theme.colors.textPrimary};
+`;
+
+const UserSub = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-family: ${({ theme }) => theme.fonts.mono};
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
 const ActionButton = styled.button`
   padding: 3px ${({ theme }) => theme.spacing.md};
   border-radius: 4px;
@@ -656,7 +786,7 @@ const ActionButton = styled.button`
   ${({ $variant, theme }) =>
     $variant === 'danger'
       ? `color: ${theme.colors.error}; border: 1px solid ${theme.colors.error}; background: ${theme.colors.errorBg};`
-      : `color: ${theme.colors.warning}; border: 1px solid ${theme.colors.warning}; background: ${theme.colors.warningBg};`}
+      : `color: ${theme.colors.warning ?? '#92400e'}; border: 1px solid ${theme.colors.warning ?? '#f59e0b'}; background: ${theme.colors.warningBg};`}
 
   &:hover:not(:disabled) { opacity: 0.75; }
   &:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -716,14 +846,6 @@ const PageInfo = styled.span`
   text-align: center;
 `;
 
-// ──────────────────────────────────────────────────────────
-// 대량 보상 UI (2026-04-09 P0-② 확장)
-// ──────────────────────────────────────────────────────────
-
-/**
- * 대량 보상 선택 바 — 하나 이상 선택된 경우 실패 주문 테이블 상단에 표시.
- * AlertBanner 와 시각적 위계를 구분하기 위해 primary 톤을 사용한다.
- */
 const BulkBar = styled.div`
   display: flex;
   align-items: center;
@@ -753,10 +875,6 @@ const BulkActions = styled.div`
   gap: ${({ theme }) => theme.spacing.sm};
 `;
 
-/**
- * 일괄 보상 실행 버튼 — 운영 사고 복구용이므로 warning 톤(주황) 으로 구분.
- * 상단의 개별 "수동 보상" 버튼과 동일한 $variant="warning" 색상과 맞춘다.
- */
 const BulkRunButton = styled.button`
   display: inline-flex;
   align-items: center;
@@ -780,7 +898,6 @@ const BulkRunButton = styled.button`
   }
 `;
 
-/** 선택 해제 — outline 스타일 */
 const BulkCancelButton = styled.button`
   display: inline-flex;
   align-items: center;
@@ -813,10 +930,6 @@ const BulkStatus = styled.span`
   margin-left: ${({ theme }) => theme.spacing.sm};
 `;
 
-/**
- * 행/헤더 공통 체크박스 — 16px 고정, primary accent.
- * UserTable 의 RowCheckbox 와 동일 스펙.
- */
 const RowCheckbox = styled.input`
   width: 16px;
   height: 16px;

@@ -3,10 +3,20 @@
  *
  * 전체 구독 목록을 조회하고 취소/연장 액션을 처리한다.
  * - 상태 필터 (전체/ACTIVE/CANCELLED/EXPIRED)
- * - 플랜 필터 (전체/BASIC/PREMIUM/ENTERPRISE)
+ * - 플랜 필터 (전체/monthly_basic/monthly_premium/yearly_basic/yearly_premium)
+ * - 유저 검색 (이메일/닉네임) — UserSearchPicker 선택 시 userId 로 서버 필터
  * - 페이징 (page, size)
- * - 취소: ACTIVE 구독만 가능, 확인 다이얼로그 후 처리
- * - 연장: ACTIVE/EXPIRED 구독 가능, 1개월 연장
+ * - 취소: ACTIVE 구독만 가능, ConfirmModal 확인 후 처리
+ * - 연장: ACTIVE/CANCELLED 구독 가능, 1주기 연장 — ConfirmModal (adminNote 입력)
+ *
+ * 2026-04-14 변경:
+ *  - 백엔드 DTO(SubscriptionSummary) 필드명과 정합화
+ *      subscriptionId / planCode / planName / periodType / startedAt / expiresAt
+ *    (기존 sub.id / sub.plan / sub.startDate / sub.endDate 는 undefined 로 연장 버튼이
+ *    `/subscription/undefined/extend` 를 호출하여 에러 발생 → 수정)
+ *  - window.confirm / alert 전면 제거 → ConfirmModal 로 교체
+ *  - userId(UUID) 대신 nickname(email) 를 우선 표시, userId 는 보조 표기
+ *  - 이메일/닉네임 검색 UI (UserSearchPicker) 추가, 서버에 userId 쿼리 전달
  *
  * @module SubscriptionTable
  */
@@ -16,6 +26,8 @@ import styled from 'styled-components';
 import { MdRefresh } from 'react-icons/md';
 import { fetchSubscriptions, cancelSubscription, extendSubscription } from '../api/paymentApi';
 import StatusBadge from '@/shared/components/StatusBadge';
+import ConfirmModal from '@/shared/components/ConfirmModal';
+import UserSearchPicker from '@/shared/components/UserSearchPicker';
 
 /** 구독 상태 → StatusBadge 매핑 */
 const STATUS_MAP = {
@@ -25,11 +37,16 @@ const STATUS_MAP = {
   PAUSED:    { status: 'warning', label: '일시정지' },
 };
 
-/** 플랜명 한국어 */
-const PLAN_LABEL = {
-  BASIC:      '베이직',
-  PREMIUM:    '프리미엄',
-  ENTERPRISE: '엔터프라이즈',
+/**
+ * 플랜 코드 → 한국어명 매핑.
+ * 백엔드는 `planCode`(예: monthly_basic) 와 `planName`(예: "월간 기본") 을 모두 내려주므로
+ * 우선 planName, 없으면 코드 매핑, 그래도 없으면 원문을 사용한다.
+ */
+const PLAN_CODE_LABEL = {
+  monthly_basic:   '월간 기본',
+  monthly_premium: '월간 프리미엄',
+  yearly_basic:    '연간 기본',
+  yearly_premium:  '연간 프리미엄',
 };
 
 /** 상태 필터 옵션 */
@@ -40,18 +57,20 @@ const STATUS_FILTERS = [
   { value: 'EXPIRED',   label: '만료' },
 ];
 
-/** 플랜 필터 옵션 */
+/** 플랜 필터 옵션 (planCode 기준) */
 const PLAN_FILTERS = [
-  { value: '', label: '전체 플랜' },
-  { value: 'BASIC',      label: '베이직' },
-  { value: 'PREMIUM',    label: '프리미엄' },
-  { value: 'ENTERPRISE', label: '엔터프라이즈' },
+  { value: '',                label: '전체 플랜' },
+  { value: 'monthly_basic',   label: '월간 기본' },
+  { value: 'monthly_premium', label: '월간 프리미엄' },
+  { value: 'yearly_basic',    label: '연간 기본' },
+  { value: 'yearly_premium',  label: '연간 프리미엄' },
 ];
 
 /** 날짜 포맷 (YYYY.MM.DD) */
 function formatDate(dateStr) {
   if (!dateStr) return '-';
   const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return '-';
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}`;
 }
@@ -59,8 +78,17 @@ function formatDate(dateStr) {
 /** 만료일까지 남은 일수 계산 */
 function getDaysLeft(endDateStr) {
   if (!endDateStr) return null;
-  const diff = new Date(endDateStr) - new Date();
+  const end = new Date(endDateStr);
+  if (Number.isNaN(end.getTime())) return null;
+  const diff = end - new Date();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+/** 플랜 라벨 우선순위: planName → 코드 매핑 → 원문 */
+function resolvePlanLabel(sub) {
+  if (sub?.planName) return sub.planName;
+  if (sub?.planCode && PLAN_CODE_LABEL[sub.planCode]) return PLAN_CODE_LABEL[sub.planCode];
+  return sub?.planCode ?? '-';
 }
 
 export default function SubscriptionTable() {
@@ -74,11 +102,22 @@ export default function SubscriptionTable() {
   /* 필터/페이징 상태 */
   const [statusFilter, setStatusFilter] = useState('');
   const [planFilter, setPlanFilter] = useState('');
+  /** 선택된 사용자 — userId 로 서버 필터링. 백엔드 미지원 시 클라이언트 필터 fallback. */
+  const [selectedUser, setSelectedUser] = useState(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
 
   /* 개별 액션 처리 중인 ID */
   const [actionId, setActionId] = useState(null);
+
+  /* 모달 상태 — 취소/연장 공통 */
+  const [modal, setModal] = useState({
+    open: false,
+    mode: null,      // 'cancel' | 'extend'
+    target: null,    // 선택된 구독
+    loading: false,
+    error: null,
+  });
 
   /** 구독 목록 조회 */
   const loadSubscriptions = useCallback(async () => {
@@ -87,17 +126,29 @@ export default function SubscriptionTable() {
       setError(null);
       const params = { page, size: PAGE_SIZE };
       if (statusFilter) params.status = statusFilter;
-      if (planFilter) params.plan = planFilter;
+      if (planFilter) params.planCode = planFilter;
+      if (selectedUser?.userId) params.userId = selectedUser.userId;
       const result = await fetchSubscriptions(params);
-      setSubscriptions(result?.content ?? []);
-      setTotalElements(result?.totalElements ?? 0);
+
+      /* 백엔드가 planCode/userId 필터를 아직 미지원하는 환경을 대비한 클라이언트 필터.
+       * 지원 시에는 서버 쪽에서 걸러지므로 추가 비용 없음. */
+      let rows = result?.content ?? [];
+      if (planFilter) {
+        rows = rows.filter((r) => r.planCode === planFilter);
+      }
+      if (selectedUser?.userId) {
+        rows = rows.filter((r) => r.userId === selectedUser.userId);
+      }
+
+      setSubscriptions(rows);
+      setTotalElements(result?.totalElements ?? rows.length);
       setTotalPages(result?.totalPages ?? 0);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, planFilter]);
+  }, [page, statusFilter, planFilter, selectedUser]);
 
   /* 초기 로드 및 의존성 변경 시 재조회 */
   useEffect(() => {
@@ -115,38 +166,82 @@ export default function SubscriptionTable() {
     setPage(0);
   }
 
-  /** 구독 취소 처리 */
-  async function handleCancel(sub) {
-    if (!window.confirm(
-      `[${PLAN_LABEL[sub.plan] ?? sub.plan}] 구독을 취소하시겠습니까?\n사용자: ${sub.userId ?? sub.id}`
-    )) return;
+  function handleUserChange(user) {
+    setSelectedUser(user);
+    setPage(0);
+  }
 
+  /* ── 모달 열기/닫기 ── */
+
+  function openCancelModal(sub) {
+    setModal({ open: true, mode: 'cancel', target: sub, loading: false, error: null });
+  }
+
+  function openExtendModal(sub) {
+    setModal({ open: true, mode: 'extend', target: sub, loading: false, error: null });
+  }
+
+  function closeModal() {
+    if (modal.loading) return;
+    setModal({ open: false, mode: null, target: null, loading: false, error: null });
+  }
+
+  /** 모달 확인 버튼 → 실제 API 호출 */
+  async function handleModalConfirm(reason) {
+    const { mode, target } = modal;
+    if (!target) return;
+
+    const subscriptionId = target.subscriptionId;
+    if (!subscriptionId) {
+      setModal((m) => ({ ...m, error: '구독 ID 가 유효하지 않습니다.' }));
+      return;
+    }
+
+    setModal((m) => ({ ...m, loading: true, error: null }));
     try {
-      setActionId(sub.id);
-      await cancelSubscription(sub.id);
-      loadSubscriptions();
+      setActionId(subscriptionId);
+      if (mode === 'cancel') {
+        await cancelSubscription(subscriptionId);
+      } else if (mode === 'extend') {
+        await extendSubscription(subscriptionId, { adminNote: reason });
+      }
+      await loadSubscriptions();
+      setModal({ open: false, mode: null, target: null, loading: false, error: null });
     } catch (err) {
-      alert(`구독 취소 실패: ${err.message}`);
+      setModal((m) => ({ ...m, loading: false, error: err?.message ?? '처리 실패' }));
     } finally {
       setActionId(null);
     }
   }
 
-  /** 구독 연장 처리 */
-  async function handleExtend(sub) {
-    if (!window.confirm(
-      `[${PLAN_LABEL[sub.plan] ?? sub.plan}] 구독을 1개월 연장하시겠습니까?\n사용자: ${sub.userId ?? sub.id}`
-    )) return;
+  /* ── 모달 콘텐츠 ── */
 
-    try {
-      setActionId(sub.id);
-      await extendSubscription(sub.id);
-      loadSubscriptions();
-    } catch (err) {
-      alert(`구독 연장 실패: ${err.message}`);
-    } finally {
-      setActionId(null);
+  function renderModalDescription() {
+    const { mode, target } = modal;
+    if (!target) return null;
+    const planLabel = resolvePlanLabel(target);
+    const userLabel = target.userId ?? '-';
+    const expires = formatDate(target.expiresAt);
+    if (mode === 'cancel') {
+      return (
+        <>
+          <strong>[{planLabel}]</strong> 구독을 취소하시겠습니까?{'\n'}
+          사용자: {userLabel}{'\n'}
+          만료일까지 혜택은 유지됩니다. (만료 예정: {expires})
+        </>
+      );
     }
+    if (mode === 'extend') {
+      const period = target.periodType === 'YEARLY' ? '1년' : '1개월';
+      return (
+        <>
+          <strong>[{planLabel}]</strong> 구독을 {period} 연장하시겠습니까?{'\n'}
+          사용자: {userLabel}{'\n'}
+          현재 만료일: {expires}
+        </>
+      );
+    }
+    return null;
   }
 
   return (
@@ -180,6 +275,16 @@ export default function SubscriptionTable() {
         </HeaderRight>
       </SectionHeader>
 
+      {/* 유저 검색 (이메일/닉네임) */}
+      <UserSearchRow>
+        <UserSearchLabel>사용자 검색</UserSearchLabel>
+        <UserSearchPicker
+          selectedUser={selectedUser}
+          onChange={handleUserChange}
+          placeholder="이메일 또는 닉네임으로 검색"
+        />
+      </UserSearchRow>
+
       {error && <ErrorMsg>{error}</ErrorMsg>}
 
       <TableWrapper>
@@ -204,27 +309,36 @@ export default function SubscriptionTable() {
             <tbody>
               {subscriptions.map((sub) => {
                 const badge = STATUS_MAP[sub.status] ?? { status: 'default', label: sub.status };
-                const daysLeft = getDaysLeft(sub.endDate);
-                const isProcessing = actionId === sub.id;
+                const daysLeft = getDaysLeft(sub.expiresAt);
+                const isProcessing = actionId === sub.subscriptionId;
                 const canCancel = sub.status === 'ACTIVE';
-                const canExtend = sub.status === 'ACTIVE' || sub.status === 'EXPIRED';
+                /* 도메인: EXPIRED 는 신규 구독으로 처리. ACTIVE/CANCELLED 만 연장 가능 */
+                const canExtend = sub.status === 'ACTIVE' || sub.status === 'CANCELLED';
 
                 return (
-                  <tr key={sub.id}>
-                    <Td mono>{sub.id}</Td>
-                    <Td>{sub.userId ?? '-'}</Td>
+                  <tr key={sub.subscriptionId}>
+                    <Td mono>{sub.subscriptionId ?? '-'}</Td>
                     <Td>
-                      <PlanChip $plan={sub.plan}>
-                        {PLAN_LABEL[sub.plan] ?? sub.plan ?? '-'}
+                      {/* 닉네임/이메일 우선 — UUID 는 보조 표시 */}
+                      <UserCell>
+                        <UserMain>{sub.nickname ?? sub.email ?? sub.userId ?? '-'}</UserMain>
+                        {(sub.nickname || sub.email) && sub.userId && (
+                          <UserSub title={sub.userId}>{sub.userId}</UserSub>
+                        )}
+                      </UserCell>
+                    </Td>
+                    <Td>
+                      <PlanChip $planCode={sub.planCode}>
+                        {resolvePlanLabel(sub)}
                       </PlanChip>
                     </Td>
                     <Td>
                       <StatusBadge status={badge.status} label={badge.label} />
                     </Td>
-                    <Td mono>{formatDate(sub.startDate)}</Td>
+                    <Td mono>{formatDate(sub.startedAt)}</Td>
                     <Td>
                       <DateCell>
-                        <span>{formatDate(sub.endDate)}</span>
+                        <span>{formatDate(sub.expiresAt)}</span>
                         {/* 만료 임박 (7일 이내) 경고 표시 */}
                         {daysLeft !== null && daysLeft >= 0 && daysLeft <= 7 && (
                           <DaysLeftBadge $urgent={daysLeft <= 3}>
@@ -244,18 +358,18 @@ export default function SubscriptionTable() {
                           <ActionButton
                             $variant="danger"
                             disabled={isProcessing}
-                            onClick={() => handleCancel(sub)}
+                            onClick={() => openCancelModal(sub)}
                           >
-                            {isProcessing ? '...' : '취소'}
+                            {isProcessing && modal.mode === 'cancel' ? '...' : '취소'}
                           </ActionButton>
                         )}
                         {canExtend && (
                           <ActionButton
                             $variant="primary"
                             disabled={isProcessing}
-                            onClick={() => handleExtend(sub)}
+                            onClick={() => openExtendModal(sub)}
                           >
-                            {isProcessing ? '...' : '연장'}
+                            {isProcessing && modal.mode === 'extend' ? '...' : '연장'}
                           </ActionButton>
                         )}
                       </ActionGroup>
@@ -286,6 +400,28 @@ export default function SubscriptionTable() {
           </PageButton>
         </Pagination>
       )}
+
+      {/* 취소/연장 공통 모달 */}
+      <ConfirmModal
+        isOpen={modal.open}
+        title={modal.mode === 'cancel' ? '구독 취소' : '구독 연장'}
+        description={renderModalDescription()}
+        confirmText={modal.mode === 'cancel' ? '구독 취소' : '1주기 연장'}
+        cancelText="닫기"
+        variant={modal.mode === 'cancel' ? 'danger' : 'primary'}
+        withReason
+        reasonLabel="관리자 메모"
+        reasonPlaceholder={
+          modal.mode === 'cancel'
+            ? '취소 사유를 입력해주세요. (감사 로그 기록용)'
+            : '연장 사유를 입력해주세요. (생략 시 "관리자 연장")'
+        }
+        reasonRequired={modal.mode === 'cancel'}
+        loading={modal.loading}
+        error={modal.error}
+        onConfirm={handleModalConfirm}
+        onClose={closeModal}
+      />
     </Section>
   );
 }
@@ -372,6 +508,21 @@ const RefreshButton = styled.button`
   &:disabled { opacity: 0.5; }
 `;
 
+const UserSearchRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.md};
+  margin-bottom: ${({ theme }) => theme.spacing.lg};
+  flex-wrap: wrap;
+`;
+
+const UserSearchLabel = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  white-space: nowrap;
+`;
+
 const TableWrapper = styled.div`
   background: ${({ theme }) => theme.colors.bgCard};
   border: 1px solid ${({ theme }) => theme.colors.border};
@@ -412,7 +563,32 @@ const Td = styled.td`
   }
 `;
 
-/** 플랜별 색상 칩 */
+/** 사용자 셀 — 닉네임/이메일 우선, userId 보조 */
+const UserCell = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+`;
+
+const UserMain = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ theme }) => theme.colors.textPrimary};
+`;
+
+const UserSub = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-family: ${({ theme }) => theme.fonts.mono};
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+/**
+ * 플랜별 색상 칩.
+ * 백엔드 planCode 기준 — 프리미엄 계열은 warning, 기본/베이식은 muted, 연간은 primary.
+ */
 const PlanChip = styled.span`
   display: inline-block;
   padding: 2px ${({ theme }) => theme.spacing.sm};
@@ -420,15 +596,14 @@ const PlanChip = styled.span`
   font-size: ${({ theme }) => theme.fontSizes.xs};
   font-weight: ${({ theme }) => theme.fontWeights.semibold};
 
-  ${({ $plan, theme }) => {
-    switch ($plan) {
-      case 'ENTERPRISE':
-        return `background: ${theme.colors.primaryBg}; color: ${theme.colors.primary};`;
-      case 'PREMIUM':
-        return `background: ${theme.colors.warningBg}; color: #b45309;`;
-      default: /* BASIC */
-        return `background: ${theme.colors.bgHover}; color: ${theme.colors.textSecondary};`;
+  ${({ $planCode, theme }) => {
+    if ($planCode?.endsWith('premium')) {
+      return `background: ${theme.colors.warningBg}; color: #b45309;`;
     }
+    if ($planCode?.startsWith('yearly')) {
+      return `background: ${theme.colors.primaryBg}; color: ${theme.colors.primary};`;
+    }
+    return `background: ${theme.colors.bgHover}; color: ${theme.colors.textSecondary};`;
   }}
 `;
 

@@ -97,6 +97,17 @@ export const AI_ADMIN_ENDPOINTS = {
   CHAT_SESSIONS: `${ADMIN}/ai/chat/sessions`,
   CHAT_MESSAGES: (sessionId) => `${ADMIN}/ai/chat/sessions/${sessionId}/messages`,
   CHAT_STATS: `${ADMIN}/ai/chat/stats`,
+  /* ── 리뷰 인증 (2026-04-14 추가) — Backend ──
+   * 도장깨기 코스 리뷰를 AI 에이전트가 "영화 줄거리 ↔ 리뷰 유사도" 로 판정한 기록의
+   * 모니터링·수동 오버라이드 API 묶음. 에이전트 자체는 추후 개발 예정이며, 본 묶음은
+   * 에이전트 판정 결과를 관리자가 검수·오버라이드할 수 있게 한다.
+   */
+  REVIEW_VERIFY_QUEUE:     `${ADMIN}/ai/review-verification/queue`,
+  REVIEW_VERIFY_OVERVIEW:  `${ADMIN}/ai/review-verification/overview`,
+  REVIEW_VERIFY_DETAIL:    (id) => `${ADMIN}/ai/review-verification/${id}`,
+  REVIEW_VERIFY_APPROVE:   (id) => `${ADMIN}/ai/review-verification/${id}/approve`,
+  REVIEW_VERIFY_REJECT:    (id) => `${ADMIN}/ai/review-verification/${id}/reject`,
+  REVIEW_VERIFY_REVERIFY:  (id) => `${ADMIN}/ai/review-verification/${id}/reverify`,
 };
 
 /* ── 데이터 관리 (윤형주 — Agent) ── */

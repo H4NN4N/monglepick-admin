@@ -122,6 +122,22 @@ export function fetchUserPayments(userId, params = {}) {
 }
 
 /**
+ * 사용자 리워드 진행 현황 조회 (2026-04-14 신설).
+ *
+ * Backend GET /api/v1/admin/users/{userId}/rewards 와 1:1 매핑.
+ * 사용자 본인이 /api/v1/point/progress 로 보는 것과 동일한 구조를 관리자 시점에서 조회한다.
+ *
+ * @param {string} userId - 사용자 ID
+ * @returns {Promise<Object>} UserRewardStatusResponse
+ *   - userId, totalEarned, earnedByActivity, currentBalance, gradeCode
+ *   - activities: ActivityProgressResponse[] (일반 활동 — 일일 한도/카운터)
+ *   - milestones: MilestoneProgressResponse[] (threshold 기반 — 달성률)
+ */
+export function fetchUserRewards(userId) {
+  return backendApi.get(`${ADMIN_USERS}/${userId}/rewards`);
+}
+
+/**
  * 관리자 수동 포인트 지급/회수 (Phase 6-2).
  *
  * @param {string} userId - 사용자 ID

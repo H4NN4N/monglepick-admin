@@ -3,9 +3,18 @@
  *
  * 교환 가능한 포인트 아이템 목록을 조회하고 인라인 수정 기능을 제공한다.
  * - 아이템 목록 테이블 (이름/카테고리/가격/설명/활성여부)
- * - 행 클릭 시 인라인 편집 모드 진입 (수정 중인 행 하이라이트)
+ * - 행의 수정 버튼 클릭 시 인라인 편집 모드 진입
  * - 수정 저장 시 updatePointItem API 호출
- * - 활성/비활성 토글 버튼으로 빠른 상태 변경 가능
+ * - 활성/비활성 토글 버튼으로 빠른 상태 변경 (ConfirmModal 확인)
+ *
+ * 2026-04-14 변경:
+ *  - 백엔드 DTO(PointItemResponse / PointItemUpdateRequest) 필드 정합화.
+ *    기존 코드가 item.id / item.name / item.price / item.description / item.active /
+ *    item.category 를 사용했지만 실제 필드는 pointItemId / itemName / itemPrice /
+ *    itemDescription / isActive / itemCategory 이다. 이로 인해 화면에 데이터가
+ *    비어 보이는 것처럼 표시되던 문제를 해결한다.
+ *  - window.confirm / alert 제거 → ConfirmModal 교체
+ *  - 업데이트 페이로드 역시 필드명 통일
  *
  * @module PointItemTable
  */
@@ -15,24 +24,38 @@ import styled from 'styled-components';
 import { MdRefresh, MdEdit, MdCheck, MdClose, MdAdd } from 'react-icons/md';
 import { fetchPointItems, updatePointItem } from '../api/paymentApi';
 import StatusBadge from '@/shared/components/StatusBadge';
+import ConfirmModal from '@/shared/components/ConfirmModal';
 import PointItemCreateModal from './PointItemCreateModal';
 
-/** 카테고리 한국어 레이블 */
+/**
+ * 카테고리 한국어 레이블.
+ * 백엔드는 문자열 자유 입력으로 저장하지만, 실제 운영값은 아래와 같이 규약되어 있다.
+ */
 const CATEGORY_LABEL = {
-  SUBSCRIPTION_DISCOUNT: '구독 할인',
-  EXTRA_QUOTA:           '추가 쿼터',
-  PROFILE_ITEM:          '프로필 아이템',
-  GIFT:                  '선물',
-  ETC:                   '기타',
+  general:               '일반',
+  coupon:                '쿠폰',
+  avatar:                '아바타',
+  ai:                    'AI 이용권',
+  subscription_discount: '구독 할인',
+  extra_quota:           '추가 쿼터',
+  profile_item:          '프로필 아이템',
+  gift:                  '선물',
+  etc:                   '기타',
 };
+
+function displayCategory(category) {
+  if (!category) return '-';
+  return CATEGORY_LABEL[category] ?? CATEGORY_LABEL[category.toLowerCase()] ?? category;
+}
 
 /** 편집 가능한 필드 초기값 추출 */
 function toEditForm(item) {
   return {
-    name:        item.name ?? '',
-    price:       String(item.price ?? ''),
-    description: item.description ?? '',
-    active:      item.active ?? true,
+    itemName:        item.itemName ?? '',
+    itemPrice:       String(item.itemPrice ?? ''),
+    itemDescription: item.itemDescription ?? '',
+    itemCategory:    item.itemCategory ?? '',
+    isActive:        item.isActive ?? true,
   };
 }
 
@@ -41,17 +64,19 @@ export default function PointItemTable() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  /* 인라인 편집 상태 — 편집 중인 아이템 ID */
+  /* 인라인 편집 상태 */
   const [editingId, setEditingId] = useState(null);
-  /* 편집 폼 값 */
   const [editForm, setEditForm] = useState({});
-  /* 저장 중인 아이템 ID */
   const [savingId, setSavingId] = useState(null);
-  /* 편집 에러 */
   const [editError, setEditError] = useState(null);
 
-  /* 신규 등록 모달 오픈 여부 — 2026-04-09 P1-⑪ 추가 */
+  /* 신규 등록 모달 */
   const [createModalOpen, setCreateModalOpen] = useState(false);
+
+  /* 활성/비활성 토글 모달 */
+  const [toggleTarget, setToggleTarget] = useState(null);
+  const [toggleLoading, setToggleLoading] = useState(false);
+  const [toggleError, setToggleError] = useState(null);
 
   /** 아이템 목록 조회 */
   const loadItems = useCallback(async () => {
@@ -74,7 +99,7 @@ export default function PointItemTable() {
 
   /** 편집 모드 진입 */
   function startEdit(item) {
-    setEditingId(item.id);
+    setEditingId(item.pointItemId);
     setEditForm(toEditForm(item));
     setEditError(null);
   }
@@ -95,12 +120,12 @@ export default function PointItemTable() {
   /** 편집 저장 */
   async function handleSave(itemId) {
     /* 유효성 검사 */
-    if (!editForm.name?.trim()) {
+    if (!editForm.itemName?.trim()) {
       setEditError('아이템 이름을 입력해주세요.');
       return;
     }
-    const price = Number(editForm.price);
-    if (!editForm.price || isNaN(price) || price < 0) {
+    const price = Number(editForm.itemPrice);
+    if (!editForm.itemPrice || Number.isNaN(price) || price < 0) {
       setEditError('가격을 올바르게 입력해주세요.');
       return;
     }
@@ -108,16 +133,17 @@ export default function PointItemTable() {
     try {
       setSavingId(itemId);
       setEditError(null);
-      const updated = await updatePointItem(itemId, {
-        name:        editForm.name.trim(),
-        price,
-        description: editForm.description.trim(),
-        active:      editForm.active,
-      });
+      const payload = {
+        itemName:        editForm.itemName.trim(),
+        itemPrice:       price,
+        itemDescription: editForm.itemDescription.trim(),
+        itemCategory:    (editForm.itemCategory ?? '').trim() || 'general',
+        isActive:        editForm.isActive,
+      };
+      const updated = await updatePointItem(itemId, payload);
 
-      /* 로컬 상태 즉시 갱신 (목록 재조회 없이) */
       setItems((prev) =>
-        prev.map((item) => (item.id === itemId ? { ...item, ...updated } : item))
+        prev.map((it) => (it.pointItemId === itemId ? { ...it, ...updated } : it))
       );
       setEditingId(null);
       setEditForm({});
@@ -128,25 +154,36 @@ export default function PointItemTable() {
     }
   }
 
-  /**
-   * 활성/비활성 빠른 토글.
-   * 편집 모드 없이 active 상태만 즉시 변경한다.
-   */
-  async function handleToggleActive(item) {
-    const newActive = !item.active;
-    const label = newActive ? '활성화' : '비활성화';
-    if (!window.confirm(`"${item.name}"을(를) ${label}하시겠습니까?`)) return;
+  /** 활성/비활성 토글 모달 열기 */
+  function openToggle(item) {
+    setToggleError(null);
+    setToggleTarget(item);
+  }
 
+  /** 토글 확인 */
+  async function runToggle() {
+    if (!toggleTarget) return;
+    const itemId = toggleTarget.pointItemId;
+    const nextActive = !toggleTarget.isActive;
+
+    setToggleLoading(true);
+    setToggleError(null);
     try {
-      setSavingId(item.id);
-      const updated = await updatePointItem(item.id, { ...item, active: newActive });
+      const updated = await updatePointItem(itemId, {
+        itemName:        toggleTarget.itemName,
+        itemPrice:       toggleTarget.itemPrice,
+        itemDescription: toggleTarget.itemDescription,
+        itemCategory:    toggleTarget.itemCategory ?? 'general',
+        isActive:        nextActive,
+      });
       setItems((prev) =>
-        prev.map((i) => (i.id === item.id ? { ...i, ...updated } : i))
+        prev.map((it) => (it.pointItemId === itemId ? { ...it, ...updated } : it))
       );
+      setToggleTarget(null);
     } catch (err) {
-      alert(`${label} 실패: ${err.message}`);
+      setToggleError(err?.message ?? '처리 실패');
     } finally {
-      setSavingId(null);
+      setToggleLoading(false);
     }
   }
 
@@ -155,11 +192,6 @@ export default function PointItemTable() {
       <SectionHeader>
         <SectionTitle>포인트 아이템 ({items.length}개)</SectionTitle>
         <HeaderActions>
-          {/*
-            신규 추가 버튼 — 2026-04-09 P1-⑪ 추가.
-            Backend createPointItem 엔드포인트와 서비스는 이미 있었으나 UI 가 없어
-            관리자가 신규 아이템을 등록할 수 없었다. 본 버튼 + 모달로 공백 해소.
-          */}
           <CreateButton
             type="button"
             onClick={() => setCreateModalOpen(true)}
@@ -202,69 +234,70 @@ export default function PointItemTable() {
             </thead>
             <tbody>
               {items.map((item) => {
-                const isEditing = editingId === item.id;
-                const isSaving  = savingId === item.id;
+                const isEditing = editingId === item.pointItemId;
+                const isSaving  = savingId === item.pointItemId;
 
                 return isEditing ? (
                   /* ── 편집 행 ── */
-                  <EditRow key={item.id}>
-                    {/* 아이템명 편집 */}
+                  <EditRow key={item.pointItemId}>
                     <Td>
                       <EditInput
                         type="text"
-                        value={editForm.name}
-                        onChange={(e) => handleEditChange('name', e.target.value)}
+                        value={editForm.itemName}
+                        onChange={(e) => handleEditChange('itemName', e.target.value)}
                         placeholder="아이템명"
-                        maxLength={100}
+                        maxLength={200}
                         autoFocus
                       />
                     </Td>
 
-                    {/* 카테고리 — 편집 불가 (읽기 전용 표시) */}
-                    <Td muted>
-                      {CATEGORY_LABEL[item.category] ?? item.category ?? '-'}
+                    <Td>
+                      <EditInput
+                        type="text"
+                        value={editForm.itemCategory}
+                        onChange={(e) => handleEditChange('itemCategory', e.target.value)}
+                        placeholder="general"
+                        maxLength={50}
+                        style={{ width: '140px' }}
+                      />
                     </Td>
 
-                    {/* 가격 편집 */}
                     <Td>
                       <EditInput
                         type="number"
                         min={0}
-                        value={editForm.price}
-                        onChange={(e) => handleEditChange('price', e.target.value)}
+                        value={editForm.itemPrice}
+                        onChange={(e) => handleEditChange('itemPrice', e.target.value)}
                         placeholder="0"
-                        style={{ width: '90px' }}
+                        style={{ width: '100px' }}
                       />
                     </Td>
 
-                    {/* 설명 편집 */}
                     <Td>
                       <EditInput
                         type="text"
-                        value={editForm.description}
-                        onChange={(e) => handleEditChange('description', e.target.value)}
+                        value={editForm.itemDescription}
+                        onChange={(e) => handleEditChange('itemDescription', e.target.value)}
                         placeholder="설명 (선택)"
-                        maxLength={200}
-                        style={{ width: '100%', minWidth: '180px' }}
+                        maxLength={500}
+                        style={{ width: '100%', minWidth: '200px' }}
                       />
                     </Td>
 
-                    {/* 활성 여부 체크박스 */}
                     <Td>
                       <ActiveCheckbox
                         type="checkbox"
-                        checked={editForm.active}
-                        onChange={(e) => handleEditChange('active', e.target.checked)}
+                        checked={editForm.isActive}
+                        onChange={(e) => handleEditChange('isActive', e.target.checked)}
                       />
                     </Td>
 
-                    {/* 저장/취소 버튼 */}
                     <Td>
                       <ActionGroup>
                         <IconButton
                           $variant="success"
                           disabled={isSaving}
-                          onClick={() => handleSave(item.id)}
+                          onClick={() => handleSave(item.pointItemId)}
                           title="저장"
                         >
                           {isSaving ? '...' : <MdCheck size={15} />}
@@ -282,23 +315,23 @@ export default function PointItemTable() {
                   </EditRow>
                 ) : (
                   /* ── 일반 행 ── */
-                  <tr key={item.id}>
-                    <Td bold>{item.name}</Td>
-                    <Td muted>
-                      {CATEGORY_LABEL[item.category] ?? item.category ?? '-'}
+                  <tr key={item.pointItemId}>
+                    <Td bold>{item.itemName ?? '-'}</Td>
+                    <Td muted>{displayCategory(item.itemCategory)}</Td>
+                    <Td mono>
+                      {item.itemPrice != null ? `${Number(item.itemPrice).toLocaleString()}P` : '-'}
                     </Td>
-                    <Td mono>{Number(item.price)?.toLocaleString()}P</Td>
-                    <Td muted>{item.description || '-'}</Td>
+                    <Td muted>{item.itemDescription || '-'}</Td>
                     <Td>
                       <ActiveToggle
-                        $active={item.active}
+                        $active={item.isActive}
                         disabled={isSaving}
-                        onClick={() => handleToggleActive(item)}
-                        title={item.active ? '클릭하여 비활성화' : '클릭하여 활성화'}
+                        onClick={() => openToggle(item)}
+                        title={item.isActive ? '클릭하여 비활성화' : '클릭하여 활성화'}
                       >
                         <StatusBadge
-                          status={item.active ? 'success' : 'default'}
-                          label={item.active ? '활성' : '비활성'}
+                          status={item.isActive ? 'success' : 'default'}
+                          label={item.isActive ? '활성' : '비활성'}
                         />
                       </ActiveToggle>
                     </Td>
@@ -320,14 +353,31 @@ export default function PointItemTable() {
         )}
       </TableWrapper>
 
-      {/*
-        신규 등록 모달 — isOpen=true 일 때만 내부 렌더링.
-        onCreated 콜백으로 등록 성공 직후 loadItems() 재호출하여 목록 동기화.
-      */}
+      {/* 신규 등록 모달 */}
       <PointItemCreateModal
         isOpen={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
         onCreated={loadItems}
+      />
+
+      {/* 활성/비활성 토글 모달 */}
+      <ConfirmModal
+        isOpen={!!toggleTarget}
+        title={toggleTarget?.isActive ? '아이템 비활성화' : '아이템 활성화'}
+        description={
+          toggleTarget
+            ? `"${toggleTarget.itemName}"을(를) ${toggleTarget.isActive ? '비활성화' : '활성화'}하시겠습니까?`
+            : null
+        }
+        confirmText={toggleTarget?.isActive ? '비활성화' : '활성화'}
+        cancelText="취소"
+        variant={toggleTarget?.isActive ? 'warning' : 'primary'}
+        loading={toggleLoading}
+        error={toggleError}
+        onConfirm={runToggle}
+        onClose={() => {
+          if (!toggleLoading) setToggleTarget(null);
+        }}
       />
     </Section>
   );
@@ -351,17 +401,12 @@ const SectionTitle = styled.h3`
   font-weight: ${({ theme }) => theme.fontWeights.semibold};
 `;
 
-/** 헤더 우측 액션 버튼 그룹 — 신규 등록 + 새로고침 가로 배치 */
 const HeaderActions = styled.div`
   display: flex;
   align-items: center;
   gap: ${({ theme }) => theme.spacing.sm};
 `;
 
-/**
- * 신규 아이템 등록 버튼 — primary 컬러, 아이콘 + 텍스트.
- * 2026-04-09 P1-⑪ 추가.
- */
 const CreateButton = styled.button`
   display: inline-flex;
   align-items: center;
@@ -461,7 +506,6 @@ const Td = styled.td`
   tr:last-child & { border-bottom: none; }
 `;
 
-/** 편집 중인 행 — 배경 하이라이트 */
 const EditRow = styled.tr`
   background: ${({ theme }) => theme.colors.primaryBg};
 
@@ -501,7 +545,6 @@ const ActiveCheckbox = styled.input`
   cursor: pointer;
 `;
 
-/** 활성 뱃지를 버튼처럼 클릭 가능하게 래핑 */
 const ActiveToggle = styled.button`
   background: none;
   border: none;

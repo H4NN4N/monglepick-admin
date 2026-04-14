@@ -46,7 +46,19 @@ const STATUS_TRANSITION_BUTTONS = {
 
 const MODE_CREATE = 'CREATE';
 const MODE_EDIT = 'EDIT';
-const EMPTY_FORM = { movieId: '', startDate: '', endDate: '' };
+/**
+ * 폼 초기값.
+ *
+ * 2026-04-14: 유저 커뮤니티 "실관람인증" 탭 노출용 title/memo 필드 추가.
+ * title 은 필수, memo 는 선택. 백엔드 @NotBlank + @Size 검증과 정합 유지.
+ */
+const EMPTY_FORM = {
+  movieId: '',
+  title: '',
+  memo: '',
+  startDate: '',
+  endDate: '',
+};
 
 /**
  * datetime-local input value (yyyy-MM-ddTHH:mm) → ISO 문자열로 변환.
@@ -107,8 +119,11 @@ export default function OcrEventTab() {
   }
 
   function openEditModal(item) {
+    // 수정 모달: 기존 값(title/memo 포함)을 폼에 pre-fill
     setForm({
       movieId: item.movieId ?? '',
+      title: item.title ?? '',
+      memo: item.memo ?? '',
       startDate: fromIsoLocalDateTime(item.startDate),
       endDate: fromIsoLocalDateTime(item.endDate),
     });
@@ -133,8 +148,11 @@ export default function OcrEventTab() {
     if (submitting) return;
     try {
       setSubmitting(true);
+      // Backend Create/UpdateOcrEventRequest 와 필드명 1:1 정합
       const payload = {
         movieId: form.movieId?.trim(),
+        title: form.title?.trim(),
+        memo: form.memo?.trim() || null, // 선택 필드 — 빈 문자열 대신 null 전송
         startDate: toIsoLocalDateTime(form.startDate),
         endDate: toIsoLocalDateTime(form.endDate),
       };
@@ -216,7 +234,9 @@ export default function OcrEventTab() {
             <tr>
               <Th $w="60px">ID</Th>
               <Th $w="120px">영화 ID</Th>
-              <Th>시작일 ~ 종료일</Th>
+              {/* 2026-04-14 신규: 제목 컬럼. 유저 카드 상단에 동일 노출 */}
+              <Th>제목 / 메모</Th>
+              <Th $w="200px">시작일 ~ 종료일</Th>
               <Th $w="100px">상태</Th>
               <Th $w="120px">생성자</Th>
               <Th $w="280px">액션</Th>
@@ -224,14 +244,22 @@ export default function OcrEventTab() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6}><CenterCell>불러오는 중...</CenterCell></td></tr>
+              <tr><td colSpan={7}><CenterCell>불러오는 중...</CenterCell></td></tr>
             ) : events.length === 0 ? (
-              <tr><td colSpan={6}><CenterCell>등록된 이벤트가 없습니다.</CenterCell></td></tr>
+              <tr><td colSpan={7}><CenterCell>등록된 이벤트가 없습니다.</CenterCell></td></tr>
             ) : (
               events.map((item) => (
                 <Tr key={item.eventId}>
                   <Td><MutedText>{item.eventId}</MutedText></Td>
                   <Td><CodeText>{item.movieId}</CodeText></Td>
+                  {/*
+                   * 제목(굵게) + 메모 1-2줄 미리보기.
+                   * 메모는 overflow-wrap + line-clamp 로 넘치지 않게 처리.
+                   */}
+                  <Td>
+                    <TitleText>{item.title || <MutedText>(제목 없음)</MutedText>}</TitleText>
+                    {item.memo && <MemoPreview>{item.memo}</MemoPreview>}
+                  </Td>
                   <Td>
                     <PeriodText>
                       {item.startDate?.replace('T', ' ').substring(0, 16)} ~{' '}
@@ -298,6 +326,33 @@ export default function OcrEventTab() {
                   required
                   maxLength={50}
                   placeholder="movie_id (VARCHAR(50))"
+                />
+              </Field>
+              {/*
+               * 2026-04-14 신규: title(필수) + memo(선택) 필드.
+               * 유저 커뮤니티 "실관람인증" 탭 카드에 그대로 렌더된다.
+               */}
+              <Field>
+                <Label>이벤트 제목 *</Label>
+                <Input
+                  type="text"
+                  name="title"
+                  value={form.title}
+                  onChange={handleFormChange}
+                  required
+                  maxLength={200}
+                  placeholder="예: 봄맞이 실관람 인증 이벤트"
+                />
+              </Field>
+              <Field>
+                <Label>이벤트 메모 / 상세 설명</Label>
+                <TextArea
+                  name="memo"
+                  value={form.memo}
+                  onChange={handleFormChange}
+                  maxLength={2000}
+                  rows={4}
+                  placeholder={'유저 카드 본문에 노출됩니다.\n(예: 영화관에서 촬영한 영수증을 업로드해 주세요. 인증 완료 시 500P 지급!)'}
                 />
               </Field>
               <FieldRow>
@@ -571,6 +626,45 @@ const Input = styled.input`
   background: ${({ theme }) => theme.colors.bgCard};
   color: ${({ theme }) => theme.colors.textPrimary};
   &:focus { border-color: ${({ theme }) => theme.colors.primary}; outline: none; }
+`;
+/**
+ * 메모(상세 설명) 입력용 textarea.
+ * Input 과 동일한 시각 언어를 유지하면서 여러 줄 입력을 허용한다.
+ */
+const TextArea = styled.textarea`
+  width: 100%;
+  padding: 7px 10px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  background: ${({ theme }) => theme.colors.bgCard};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+  &:focus { border-color: ${({ theme }) => theme.colors.primary}; outline: none; }
+`;
+/** 테이블 "제목/메모" 컬럼의 제목 텍스트 (강조) */
+const TitleText = styled.div`
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  word-break: break-word;
+`;
+/**
+ * 테이블 "제목/메모" 컬럼의 메모 미리보기.
+ * 2줄로 제한 — 긴 텍스트는 줄임표로 자르고 hover 시 title 속성으로 전체 노출 가능.
+ */
+const MemoPreview = styled.div`
+  margin-top: 2px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  white-space: pre-wrap;
 `;
 const DialogFooter = styled.div`
   display: flex;
