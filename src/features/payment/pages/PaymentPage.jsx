@@ -4,16 +4,21 @@
  * 2026-04-08 개편:
  *  - "포인트팩" / "리워드 정책" 서브탭 흡수 (구 운영 도구 → 포인트 경제 도메인 통합)
  *
- * 6개 서브탭:
- * - 결제 내역: 전체 결제 주문 조회/환불, 보상 실패 건 수동 처리
- * - 구독 관리: 구독 목록 조회, 수동 취소/연장
- * - 포인트 관리: 수동 지급/차감, 사용자 이력 조회
- * - 포인트 아이템: 교환 아이템 목록 조회 및 인라인 수정
- * - 포인트팩: 결제 포인트 팩 CRUD (가격/지급량) — 신규 흡수
- * - 리워드 정책: 55종 활동 리워드 정책 CRUD — 신규 흡수
+ * 2026-04-14 확장:
+ *  - "개별 결제" / "포인트 단독 결제" 탭 추가 — 운영 편의상 결제 유형별 분리 뷰 제공.
+ *    PaymentOrderTable 는 `orderTypeFilter` prop 으로 주문 유형을 고정 필터한다.
  *
- * 탭 상태는 URL 쿼리 파라미터(tab)로 동기화하지 않고
- * 단순 useState로 관리한다 (페이지 새로고침 시 첫 탭으로 초기화).
+ * 8개 서브탭:
+ * - 결제 내역: 전체 결제 주문 조회/환불, 보상 실패 건 수동 처리
+ * - 개별 결제: 구독(SUBSCRIPTION) 단독 뷰
+ * - 포인트 단독 결제: 포인트 팩(POINT_PACK) 단독 뷰
+ * - 구독 관리: 구독 목록 조회, 수동 취소/연장 (모달 기반)
+ * - 포인트 관리: 수동 지급/차감, 사용자 이력 조회 (이메일/닉네임 검색)
+ * - 포인트 아이템: 교환 아이템 목록 조회 및 인라인 수정
+ * - 포인트팩: 결제 포인트 팩 CRUD (가격/지급량)
+ * - 리워드 정책: 55종 활동 리워드 정책 CRUD
+ *
+ * 탭 상태는 단순 useState 로 관리 (페이지 새로고침 시 첫 탭으로 초기화).
  *
  * @module PaymentPage
  */
@@ -30,6 +35,8 @@ import RewardPolicyTab from '../components/RewardPolicyTab';
 /** 서브탭 정의 */
 const TABS = [
   { id: 'orders',        label: '결제 내역' },
+  { id: 'orders_sub',    label: '개별 결제' },
+  { id: 'orders_point',  label: '포인트 단독 결제' },
   { id: 'subscription',  label: '구독 관리' },
   { id: 'point',         label: '포인트 관리' },
   { id: 'items',         label: '포인트 아이템' },
@@ -68,6 +75,25 @@ export default function PaymentPage() {
       {/* 탭 콘텐츠 영역 */}
       <TabContent>
         {activeTab === 'orders'        && <PaymentOrderTable />}
+        {/*
+          개별 결제 탭 — SUBSCRIPTION 주문만 필터링하여 표시.
+          보상 실패 섹션은 전체 탭에서만 노출하여 중복 혼란 방지.
+        */}
+        {activeTab === 'orders_sub'    && (
+          <PaymentOrderTable
+            orderTypeFilter="SUBSCRIPTION"
+            title="개별 결제 (구독)"
+            showFailedSection={false}
+          />
+        )}
+        {/* 포인트 단독 결제 탭 — POINT_PACK 주문만 */}
+        {activeTab === 'orders_point'  && (
+          <PaymentOrderTable
+            orderTypeFilter="POINT_PACK"
+            title="포인트 단독 결제 (포인트팩)"
+            showFailedSection={false}
+          />
+        )}
         {activeTab === 'subscription'  && <SubscriptionTable />}
         {activeTab === 'point'         && <PointManagement />}
         {activeTab === 'items'         && <PointItemTable />}

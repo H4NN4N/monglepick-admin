@@ -57,6 +57,8 @@ import {
   fetchUserPoints,
   fetchUserPayments,
   fetchSuspensionHistory,
+  /* 2026-04-14 신설 — 사용자 리워드 진행 현황 */
+  fetchUserRewards,
 } from '../api/usersApi';
 import { fetchAuditLogs } from '@/features/settings/api/settingsApi';
 import StatusBadge from '@/shared/components/StatusBadge';
@@ -98,6 +100,7 @@ const GRADE_BADGE = {
  */
 const MINI_TABS = [
   { id: 'timeline', label: '통합 타임라인' },
+  { id: 'rewards',  label: '리워드 현황' }, /* 2026-04-14 신설 — 활동 진행도 + 마일스톤 달성률 */
   { id: 'activity', label: '활동 이력' },
   { id: 'points',   label: '포인트 내역' },
   { id: 'payments', label: '결제 내역' },
@@ -319,6 +322,19 @@ export default function UserDetailPanel({ userId, onClose, onRefresh }) {
           return tb - ta;
         });
         items = events.slice(0, TIMELINE_MAX_RENDER);
+      } else if (tabId === 'rewards') {
+        /*
+         * 리워드 진행 현황 — 2026-04-14 신규.
+         *
+         * Backend GET /api/v1/admin/users/{userId}/rewards 호출.
+         * 사용자 본인이 /api/v1/point/progress 로 보는 것과 동일 구조. 응답이
+         * 배열이 아닌 단일 객체(UserRewardStatusResponse) 이므로 tabData 에도
+         * 객체로 그대로 저장한다. 렌더링 시 `tabData.rewards?.activities` 등으로
+         * 구조 분해한다.
+         */
+        const reward = await fetchUserRewards(userId);
+        /* 배열/비어있음 분기가 있는 기본 렌더 로직에 걸리지 않도록 "0이 아닌 배열" 형태로 래핑 */
+        items = reward ? [reward] : [];
       } else if (tabId === 'activity') {
         const result = await fetchUserActivity(userId, { page: 0, size: 10 });
         items = result?.content ?? result ?? [];
@@ -612,6 +628,127 @@ export default function UserDetailPanel({ userId, onClose, onRefresh }) {
                     최근 {tabData.timeline.length}건 표시 (최대 {TIMELINE_MAX_RENDER}건)
                   </TimelineFooter>
                 </TimelineList>
+              ) : activeTab === 'rewards' ? (
+                /*
+                 * 리워드 진행 현황 렌더링 — 2026-04-14 신규.
+                 *
+                 * fetchUserRewards 응답은 단일 객체지만 공통 empty 검사(length===0)
+                 * 를 통과시키기 위해 [reward] 로 래핑해서 저장했으므로 여기서 인덱스 0
+                 * 을 꺼낸다. 요약 4항목(잔액/누적/활동누적/등급) + 활동 리스트 + 마일스톤 리스트.
+                 */
+                (() => {
+                  const reward = tabData.rewards?.[0];
+                  if (!reward) return <TabEmpty>리워드 데이터가 없습니다.</TabEmpty>;
+                  const { totalEarned, earnedByActivity, currentBalance, gradeCode,
+                          activities = [], milestones = [] } = reward;
+                  return (
+                    <RewardBody>
+                      {/* 요약 4칸 */}
+                      <RewardSummary>
+                        <RewardSummaryItem>
+                          <RewardSummaryLabel>현재 잔액</RewardSummaryLabel>
+                          <RewardSummaryValue>
+                            {Number(currentBalance ?? 0).toLocaleString()}P
+                          </RewardSummaryValue>
+                        </RewardSummaryItem>
+                        <RewardSummaryItem>
+                          <RewardSummaryLabel>누적 획득</RewardSummaryLabel>
+                          <RewardSummaryValue>
+                            {Number(totalEarned ?? 0).toLocaleString()}P
+                          </RewardSummaryValue>
+                        </RewardSummaryItem>
+                        <RewardSummaryItem>
+                          <RewardSummaryLabel>활동 누적 (등급 기준)</RewardSummaryLabel>
+                          <RewardSummaryValue>
+                            {Number(earnedByActivity ?? 0).toLocaleString()}P
+                          </RewardSummaryValue>
+                        </RewardSummaryItem>
+                        <RewardSummaryItem>
+                          <RewardSummaryLabel>등급</RewardSummaryLabel>
+                          <RewardSummaryValue>{gradeCode ?? 'NORMAL'}</RewardSummaryValue>
+                        </RewardSummaryItem>
+                      </RewardSummary>
+
+                      {/* 활동 진행도 */}
+                      <RewardBlockTitle>활동별 현황 ({activities.length}건)</RewardBlockTitle>
+                      {activities.length === 0 ? (
+                        <TabEmpty>활동 기록이 없습니다.</TabEmpty>
+                      ) : (
+                        <RewardActivityList>
+                          {activities.map((act) => {
+                            const dailyLimit = act.dailyLimit ?? 0;
+                            const rewardedToday = act.rewardedTodayCount ?? 0;
+                            const percent = dailyLimit > 0
+                              ? Math.min(100, Math.round((rewardedToday * 100) / dailyLimit))
+                              : 0;
+                            return (
+                              <RewardActivityItem key={act.actionType}>
+                                <RewardActivityHead>
+                                  <RewardActivityName>{act.activityName}</RewardActivityName>
+                                  <RewardActivityMeta>
+                                    +{(act.pointsAmount ?? 0).toLocaleString()}P
+                                  </RewardActivityMeta>
+                                </RewardActivityHead>
+                                {dailyLimit > 0 && (
+                                  <RewardGaugeRow>
+                                    <RewardGaugeTrack>
+                                      <RewardGaugeFill $percent={percent} />
+                                    </RewardGaugeTrack>
+                                    <RewardGaugeLabel>
+                                      오늘 {rewardedToday}/{dailyLimit}
+                                    </RewardGaugeLabel>
+                                  </RewardGaugeRow>
+                                )}
+                                <RewardCounterRow>
+                                  <span>누적 {Number(act.totalCount ?? 0).toLocaleString()}회</span>
+                                  <span>지급 {Number(act.rewardedTotalCount ?? 0).toLocaleString()}회</span>
+                                  {act.currentStreak > 0 && (
+                                    <span>연속 {act.currentStreak}회 (최고 {act.maxStreak ?? 0})</span>
+                                  )}
+                                </RewardCounterRow>
+                              </RewardActivityItem>
+                            );
+                          })}
+                        </RewardActivityList>
+                      )}
+
+                      {/* 마일스톤 진행률 */}
+                      <RewardBlockTitle>마일스톤 진행률 ({milestones.length}건)</RewardBlockTitle>
+                      {milestones.length === 0 ? (
+                        <TabEmpty>마일스톤 정책이 없습니다.</TabEmpty>
+                      ) : (
+                        <RewardActivityList>
+                          {milestones.map((m) => {
+                            const percent = m.progressPercent ?? 0;
+                            const current = m.currentValue ?? 0;
+                            const threshold = m.thresholdCount ?? 0;
+                            return (
+                              <RewardActivityItem key={m.actionType} $achieved={m.achieved}>
+                                <RewardActivityHead>
+                                  <RewardActivityName>
+                                    {m.activityName}
+                                    {m.achieved && <RewardAchievedTag>달성</RewardAchievedTag>}
+                                  </RewardActivityName>
+                                  <RewardActivityMeta>
+                                    +{(m.pointsAmount ?? 0).toLocaleString()}P
+                                  </RewardActivityMeta>
+                                </RewardActivityHead>
+                                <RewardGaugeRow>
+                                  <RewardGaugeTrack>
+                                    <RewardGaugeFill $percent={percent} $achieved={m.achieved} />
+                                  </RewardGaugeTrack>
+                                  <RewardGaugeLabel>
+                                    {current}/{threshold} ({percent}%)
+                                  </RewardGaugeLabel>
+                                </RewardGaugeRow>
+                              </RewardActivityItem>
+                            );
+                          })}
+                        </RewardActivityList>
+                      )}
+                    </RewardBody>
+                  );
+                })()
               ) : (
                 <TabList>
                   {tabData[activeTab].map((item, idx) => (
@@ -1148,4 +1285,152 @@ const TimelineFooter = styled.li`
   font-size: 10px;
   color: ${({ theme }) => theme.colors.textMuted};
   text-align: center;
+`;
+
+/* ══════════════════════════════════════════════ */
+/* 리워드 현황 탭 (2026-04-14 신설)               */
+/* ══════════════════════════════════════════════ */
+
+/** 리워드 탭 본체 레이아웃 */
+const RewardBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${({ theme }) => theme.spacing.md};
+`;
+
+/** 요약 4칸 (2×2 그리드) */
+const RewardSummary = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: ${({ theme }) => theme.spacing.sm};
+`;
+
+const RewardSummaryItem = styled.div`
+  background: ${({ theme }) => theme.colors.bgHover};
+  border: 1px solid ${({ theme }) => theme.colors.borderLight};
+  border-radius: ${({ theme }) => theme.layout.cardRadius};
+  padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+`;
+
+const RewardSummaryLabel = styled.div`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+`;
+
+const RewardSummaryValue = styled.div`
+  font-size: ${({ theme }) => theme.fontSizes.md};
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  color: ${({ theme }) => theme.colors.textPrimary};
+`;
+
+/** 리워드 서브 블록 제목 ("활동별 현황", "마일스톤 진행률") */
+const RewardBlockTitle = styled.h5`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  margin: ${({ theme }) => theme.spacing.xs} 0 0 0;
+  padding-top: ${({ theme }) => theme.spacing.sm};
+  border-top: 1px dashed ${({ theme }) => theme.colors.borderLight};
+`;
+
+/** 활동/마일스톤 리스트 컨테이너 */
+const RewardActivityList = styled.ul`
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: ${({ theme }) => theme.spacing.xs};
+`;
+
+/** 활동/마일스톤 단건 카드 */
+const RewardActivityItem = styled.li`
+  background: ${({ theme }) => theme.colors.bgCard};
+  border: 1px solid
+    ${({ $achieved, theme }) =>
+      $achieved ? theme.colors.primary : theme.colors.borderLight};
+  border-radius: ${({ theme }) => theme.layout.cardRadius};
+  padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const RewardActivityHead = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.xs};
+`;
+
+const RewardActivityName = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+`;
+
+const RewardActivityMeta = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.primary};
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  white-space: nowrap;
+`;
+
+/** 달성 배지 */
+const RewardAchievedTag = styled.span`
+  display: inline-block;
+  padding: 1px 8px;
+  background: ${({ theme }) => theme.colors.primary};
+  color: #fff;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+`;
+
+/** 게이지 행 */
+const RewardGaugeRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.xs};
+`;
+
+const RewardGaugeTrack = styled.div`
+  flex: 1;
+  height: 5px;
+  background: ${({ theme }) => theme.colors.borderLight};
+  border-radius: 3px;
+  overflow: hidden;
+`;
+
+const RewardGaugeFill = styled.div.withConfig({
+  shouldForwardProp: (prop) => prop !== '$percent' && prop !== '$achieved',
+})`
+  width: ${({ $percent }) => Math.min(100, Math.max(0, Number($percent) || 0))}%;
+  height: 100%;
+  background: ${({ theme, $achieved }) =>
+    $achieved ? (theme.colors.success ?? theme.colors.primary) : theme.colors.primary};
+  transition: width 0.3s ease-out;
+`;
+
+const RewardGaugeLabel = styled.span`
+  font-size: 11px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  white-space: nowrap;
+  min-width: 90px;
+  text-align: right;
+`;
+
+/** 카운터 행 (누적/지급/연속) */
+const RewardCounterRow = styled.div`
+  display: flex;
+  gap: ${({ theme }) => theme.spacing.sm};
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  flex-wrap: wrap;
 `;

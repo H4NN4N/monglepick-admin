@@ -18,8 +18,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
-import { MdRefresh, MdAdminPanelSettings, MdInfoOutline } from 'react-icons/md';
+import { MdRefresh, MdAdminPanelSettings, MdInfoOutline, MdAdd } from 'react-icons/md';
 import { fetchAdmins, updateAdminRole } from '../api/settingsApi';
+import AdminAccountCreateModal from './AdminAccountCreateModal';
 import StatusBadge from '@/shared/components/StatusBadge';
 
 /**
@@ -68,6 +69,15 @@ const ROLES = [
     label: 'AI 운영 관리자 (AI_OPS_ADMIN)',
     description: 'AI 퀴즈 생성·채팅 로그·모델 버전 관리',
   },
+  /*
+   * 2026-04-14 추가: 통계/분석 전담 역할.
+   * 쓰기 권한 없이 통계 12탭 + 대시보드 조회만 필요한 분석가/기획자 롤.
+   */
+  {
+    value: 'STATS_ADMIN',
+    label: '통계/분석 관리자 (STATS_ADMIN)',
+    description: '대시보드·통계·분석 탭 조회 전용 (쓰기 권한 없음)',
+  },
 ];
 
 /**
@@ -91,6 +101,8 @@ const ROLE_BADGE = {
   SUPPORT_ADMIN: 'info',
   DATA_ADMIN:    'default',
   AI_OPS_ADMIN:  'default',
+  /* 2026-04-14 STATS_ADMIN 추가 — 쓰기 권한 없는 조회 전용 롤이므로 중립 톤(default) */
+  STATS_ADMIN:   'default',
 };
 
 /** 날짜+시간 포맷 함수 */
@@ -118,6 +130,12 @@ export default function AdminAccountTab() {
 
   /* ── 역할 변경 로딩 상태 (adminId → boolean 맵) ── */
   const [roleChanging, setRoleChanging] = useState({});
+
+  /*
+   * 관리자 신규 등록 모달 표시 상태 — 2026-04-14 추가.
+   * 모달이 서버 등록 성공 시 onSuccess 콜백으로 목록 재조회를 트리거한다.
+   */
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   /** 관리자 목록 조회 */
   const loadAdmins = useCallback(async () => {
@@ -176,11 +194,30 @@ export default function AdminAccountTab() {
           <SectionTitle>관리자 계정</SectionTitle>
         </ToolbarLeft>
         <ToolbarRight>
+          {/*
+            2026-04-14 추가: 관리자 계정 신규 등록 버튼.
+            클릭 시 AdminAccountCreateModal 이 열리며, 등록 성공 시 목록이 재조회된다.
+          */}
+          <PrimaryButton onClick={() => setCreateModalOpen(true)} title="기존 사용자를 관리자로 승격">
+            <MdAdd size={16} />
+            <span>관리자 추가</span>
+          </PrimaryButton>
           <IconButton onClick={loadAdmins} disabled={loading} title="새로고침">
             <MdRefresh size={16} />
           </IconButton>
         </ToolbarRight>
       </Toolbar>
+
+      {/* ── 관리자 신규 등록 모달 (createModalOpen === true 일 때만 렌더) ── */}
+      {createModalOpen && (
+        <AdminAccountCreateModal
+          onClose={() => setCreateModalOpen(false)}
+          onSuccess={() => {
+            // 서버 등록 성공 → 목록 재조회하여 최신 상태 반영
+            loadAdmins();
+          }}
+        />
+      )}
 
       {/* ── 에러 메시지 ── */}
       {error && <ErrorMsg>{error}</ErrorMsg>}
@@ -376,6 +413,30 @@ const SectionTitle = styled.h3`
   font-size: ${({ theme }) => theme.fontSizes.lg};
   font-weight: ${({ theme }) => theme.fontWeights.semibold};
   color: ${({ theme }) => theme.colors.textPrimary};
+`;
+
+/**
+ * 관리자 신규 등록 버튼 — 툴바 우측에 노출.
+ * 2026-04-14 추가. 색 채움 primary 로직으로 "새 작업 시작" CTA 를 시각적으로 강조한다.
+ */
+const PrimaryButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  background: ${({ theme }) => theme.colors.primary};
+  color: white;
+  border-radius: 4px;
+  transition: opacity ${({ theme }) => theme.transitions.fast};
+  &:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 `;
 
 const IconButton = styled.button`

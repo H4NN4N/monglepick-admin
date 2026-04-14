@@ -3,16 +3,23 @@
  *
  * 기능:
  * - 리뷰 목록 테이블 (영화ID, 작성자ID, 평점, 내용 미리보기, 카테고리, 스포일러, 블라인드, 좋아요, 작성일, 액션)
- * - 상단: movieId 검색 input + minRating select + categoryCode select + 새로고침
+ * - 상단: 영화 제목 검색(MovieSearchPicker) + minRating select + categoryCode select + 새로고침
  * - 카테고리 필터로 도장깨기 인증 리뷰 모니터링 가능 (categoryCode='COURSE')
  * - 삭제 확인 다이얼로그 + 페이지네이션
+ *
+ * 변경 이력:
+ * - 2026-04-14: 영화 ID 텍스트 입력 → MovieSearchPicker 로 전환.
+ *   운영자가 movie_id(VARCHAR PK) 를 외워서 입력하던 부담을 제거하고
+ *   영화 제목으로 검색해 선택하도록 변경. 백엔드 API(`GET /admin/reviews?movieId=`)는
+ *   그대로 두고 프론트에서 선택한 영화의 movieId 만 추출해 전달한다.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
-import { MdRefresh, MdDelete, MdSearch, MdStar } from 'react-icons/md';
+import { MdRefresh, MdDelete } from 'react-icons/md';
 import { fetchReviews, deleteReview } from '../api/contentApi';
 import StatusBadge from '@/shared/components/StatusBadge';
+import MovieSearchPicker from '@/shared/components/MovieSearchPicker';
 
 /** 최소 평점 필터 옵션 */
 const MIN_RATING_OPTIONS = [
@@ -77,9 +84,14 @@ export default function ReviewTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  /* ── 필터/페이지 상태 ── */
-  const [movieIdInput, setMovieIdInput] = useState(''); // 입력 버퍼
-  const [movieId, setMovieId] = useState('');           // 확정된 검색값
+  /* ── 필터/페이지 상태 ──
+   *
+   * selectedMovie: MovieSearchPicker 에서 선택된 영화 객체 ({ movieId, title, ... }).
+   *                null 이면 영화 필터를 해제한 상태이며 전체 리뷰가 조회된다.
+   *                백엔드 API 는 movieId(String VARCHAR(50)) 만 받으므로
+   *                loadReviews 에서 selectedMovie?.movieId 를 추출해 전달한다.
+   */
+  const [selectedMovie, setSelectedMovie] = useState(null);
   const [minRating, setMinRating] = useState('');
   const [categoryCode, setCategoryCode] = useState(''); // 작성 카테고리 enum 이름 필터
   const [page, setPage] = useState(0);
@@ -94,7 +106,9 @@ export default function ReviewTab() {
       setLoading(true);
       setError(null);
       const params = { page, size: PAGE_SIZE };
-      if (movieId) params.movieId = movieId;
+      /* MovieSearchPicker 에서 선택된 영화의 movieId 만 백엔드에 전달.
+       * 백엔드 컨트롤러 시그니처(@RequestParam String movieId)는 변경 없음. */
+      if (selectedMovie?.movieId) params.movieId = selectedMovie.movieId;
       if (minRating) params.minRating = minRating;
       if (categoryCode) params.categoryCode = categoryCode;
       const result = await fetchReviews(params);
@@ -105,21 +119,20 @@ export default function ReviewTab() {
     } finally {
       setLoading(false);
     }
-  }, [page, movieId, minRating, categoryCode]);
+  }, [page, selectedMovie, minRating, categoryCode]);
 
   useEffect(() => {
     loadReviews();
   }, [loadReviews]);
 
-  /** movieId 검색 확정 (엔터 또는 버튼 클릭) */
-  function handleSearch() {
-    setMovieId(movieIdInput.trim());
+  /**
+   * MovieSearchPicker 의 onChange 핸들러.
+   * 영화 선택/해제 시 첫 페이지로 초기화하여 새 필터 결과를 보여준다.
+   * @param {?Object} movie - 선택된 영화 ({ movieId, title, ... }) 또는 null
+   */
+  function handleMovieChange(movie) {
+    setSelectedMovie(movie);
     setPage(0);
-  }
-
-  /** 검색 input 엔터 처리 */
-  function handleKeyDown(e) {
-    if (e.key === 'Enter') handleSearch();
   }
 
   /** minRating 필터 변경 시 첫 페이지로 초기화 */
@@ -161,22 +174,17 @@ export default function ReviewTab() {
 
   return (
     <Container>
-      {/* ── 툴바: 영화 ID 검색 + 최소 평점 + 새로고침 ── */}
+      {/* ── 툴바: 영화 제목 검색 + 최소 평점 + 새로고침 ── */}
       <Toolbar>
         <ToolbarLeft>
-          {/* 영화 ID 검색 */}
-          <SearchWrap>
-            <SearchInput
-              type="text"
-              placeholder="영화 ID 검색..."
-              value={movieIdInput}
-              onChange={(e) => setMovieIdInput(e.target.value)}
-              onKeyDown={handleKeyDown}
+          {/* 영화 제목 검색 (Autocomplete) — 운영자가 영화 제목으로 직접 검색해 선택 */}
+          <PickerSlot>
+            <MovieSearchPicker
+              selectedMovie={selectedMovie}
+              onChange={handleMovieChange}
+              placeholder="영화 제목으로 검색..."
             />
-            <SearchButton onClick={handleSearch}>
-              <MdSearch size={16} />
-            </SearchButton>
-          </SearchWrap>
+          </PickerSlot>
           {/* 최소 평점 select */}
           <FilterSelect value={minRating} onChange={handleMinRatingChange}>
             {MIN_RATING_OPTIONS.map((opt) => (
@@ -372,31 +380,20 @@ const ToolbarRight = styled.div`
   gap: ${({ theme }) => theme.spacing.sm};
 `;
 
-const SearchWrap = styled.div`
-  display: flex;
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: 4px;
-  overflow: hidden;
-`;
+/**
+ * 영화 검색 픽커를 툴바 안에 배치하기 위한 슬롯.
+ *
+ * MovieSearchPicker 자체는 max-width 420px 의 독립 컨테이너인데,
+ * 툴바 안에서는 다른 select 와 자연스럽게 어울리도록 너비를 240px 로 좁힌다.
+ * (기존 영화 ID input 이 180px 였던 것과 비슷한 폭)
+ */
+const PickerSlot = styled.div`
+  width: 240px;
 
-const SearchInput = styled.input`
-  padding: 6px 10px;
-  font-size: ${({ theme }) => theme.fontSizes.sm};
-  border: none;
-  outline: none;
-  width: 180px;
-`;
-
-const SearchButton = styled.button`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 10px;
-  background: ${({ theme }) => theme.colors.bgHover};
-  border-left: 1px solid ${({ theme }) => theme.colors.border};
-  color: ${({ theme }) => theme.colors.textSecondary};
-  transition: background ${({ theme }) => theme.transitions.fast};
-  &:hover { background: ${({ theme }) => theme.colors.border}; }
+  /* 내부 MovieSearchPicker 의 Wrapper(max-width: 420px) 를 슬롯에 맞춘다 */
+  & > div {
+    max-width: 100%;
+  }
 `;
 
 const FilterSelect = styled.select`
