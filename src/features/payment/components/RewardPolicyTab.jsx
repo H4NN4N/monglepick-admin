@@ -46,7 +46,7 @@ const POINT_TYPES = [
 ];
 
 /**
- * CSV 대량 등록 컬럼 정의 — 2026-04-09 P2-⑬.
+ * CSV 대량 등록 컬럼 정의 — 2026-04-09 P2-⑬ (2026-04-14 템플릿 가독성 개편).
  *
  * RewardPolicy 는 14개 필드 중 대부분이 숫자/선택 필드이고, Backend `createRewardPolicy()` 는
  * `changeReason` 을 필수로 받는다 (정책 변경 이력 INSERT-ONLY 원장 기록용). CSV 행에도
@@ -62,31 +62,56 @@ const POINT_TYPES = [
  *   CSV 에서도 생략 시 0 으로 간주하도록 transform 에서 빈 값이 들어오면 0 을 반환한다.
  *   단, CSV 의 빈 셀은 `rowToPayload()` 에서 이미 제외되므로 transform 이 호출되지 않는다.
  *   따라서 빈 값은 payload 에서 아예 빠지고 Backend 가 기본값(0)을 쓴다.
+ *
+ * ## 2026-04-14 개편 내역 — 템플릿 가독성 문제 해결
+ *
+ * 1. **영문 헤더 → 한글 헤더**: CSV 를 Excel 로 열었을 때 `actionType`, `limitType` 같은
+ *    DB 컬럼명이 그대로 노출되는 문제를 해결. 헤더를 "액션 코드", "제한 유형" 등 한글로 바꾸되
+ *    각 헤더에 `(필수)` / `(허용: CONTENT/ENGAGEMENT/...)` / `(0=무제한)` 같은 인라인 힌트를 넣어
+ *    운영자가 템플릿만 보고도 의미를 파악할 수 있게 했다.
+ * 2. **파서는 `col.header` 로 매칭**하므로 헤더만 바꿔도 임포트는 그대로 동작한다.
+ *    Backend payload 필드명은 `col.key` (영문 그대로) 이므로 서버 계약은 불변.
+ * 3. **예시 행 4건으로 확장**: 기존 CONTENT 2건 → CONTENT/CONTENT/ATTENDANCE/MILESTONE 4건.
+ *    출석(일일 한도), 업적(총한도=1, bonus 타입) 등 특수 케이스를 보여 주어 운영자가 각 필드의
+ *    실제 의미를 예시로 학습할 수 있게 한다. `example3`/`example4` 는 `downloadCsvTemplate()` 이
+ *    2026-04-14 확장으로 자동 지원한다.
+ * 4. **description 강화**: 미리보기 모달의 "필수/설명" 컬럼에 노출되는 문구를 구체화하여
+ *    허용값·단위·기본값·예시를 모두 한 줄로 담았다.
  */
 const CSV_IMPORT_COLUMNS = [
   {
     key: 'actionType',
-    header: 'actionType',
+    header: '액션 코드 (필수)',
     required: true,
-    description: '정책 식별자 (예: POST_CREATE, REVIEW_WRITE). UNIQUE 제약',
+    description:
+      '정책을 식별하는 시스템 코드. UNIQUE 제약이며 대문자+언더스코어 권장. ' +
+      '예: POST_CREATE, REVIEW_WRITE, ATTENDANCE_DAILY, ACHIEVEMENT_UNLOCK',
     example: 'POST_CREATE',
     example2: 'REVIEW_WRITE',
+    example3: 'ATTENDANCE_DAILY',
+    example4: 'ACHIEVEMENT_FIRST_REVIEW',
   },
   {
     key: 'activityName',
-    header: 'activityName',
+    header: '활동명 (필수)',
     required: true,
-    description: '관리자/사용자 노출 활동명 (예: 게시글 작성)',
+    description: '관리자 화면 / 사용자에게 노출되는 한국어 활동명',
     example: '게시글 작성',
     example2: '리뷰 작성',
+    example3: '일일 출석',
+    example4: '첫 리뷰 작성 업적',
   },
   {
     key: 'actionCategory',
-    header: 'actionCategory',
+    header: '카테고리 (필수, CONTENT/ENGAGEMENT/MILESTONE/ATTENDANCE)',
     required: true,
-    description: 'CONTENT / ENGAGEMENT / MILESTONE / ATTENDANCE 중 하나',
+    description:
+      '활동 분류 — CONTENT(콘텐츠 작성: 게시글·리뷰), ENGAGEMENT(참여: 좋아요·댓글), ' +
+      'MILESTONE(업적·마일스톤), ATTENDANCE(출석·연속 출석) 중 하나',
     example: 'CONTENT',
     example2: 'CONTENT',
+    example3: 'ATTENDANCE',
+    example4: 'MILESTONE',
     transform: (raw) => {
       const allowed = ['CONTENT', 'ENGAGEMENT', 'MILESTONE', 'ATTENDANCE'];
       const upper = String(raw).toUpperCase();
@@ -98,11 +123,13 @@ const CSV_IMPORT_COLUMNS = [
   },
   {
     key: 'pointsAmount',
-    header: 'pointsAmount',
+    header: '지급 포인트 (필수, 정수)',
     required: true,
-    description: '지급 포인트 (정수)',
+    description: '활동 완료 시 지급되는 포인트 수량. 1P=10원. 정수만 허용',
     example: 10,
     example2: 20,
+    example3: 5,
+    example4: 100,
     transform: (raw) => {
       const n = Number(raw);
       if (!Number.isInteger(n)) throw new Error('정수여야 합니다');
@@ -111,10 +138,14 @@ const CSV_IMPORT_COLUMNS = [
   },
   {
     key: 'pointType',
-    header: 'pointType',
-    description: 'earn (등급 배율 적용) 또는 bonus (고정 보너스). 기본 earn',
+    header: '포인트 유형 (earn / bonus, 기본 earn)',
+    description:
+      '포인트 지급 방식 — earn: 사용자 등급 배율(×1.0~×1.5) 적용되는 일반 획득 / ' +
+      'bonus: 등급 배율 미적용 고정 보너스(업적·이벤트용). 생략 시 earn',
     example: 'earn',
-    example2: 'bonus',
+    example2: 'earn',
+    example3: 'earn',
+    example4: 'bonus',
     transform: (raw) => {
       const v = String(raw).toLowerCase();
       if (!['earn', 'bonus'].includes(v)) {
@@ -125,10 +156,12 @@ const CSV_IMPORT_COLUMNS = [
   },
   {
     key: 'dailyLimit',
-    header: 'dailyLimit',
-    description: '일일 획득 한도 횟수 (0 = 무제한, 정수)',
+    header: '일일 한도 횟수 (0=무제한)',
+    description: '하루 동안 이 활동으로 포인트를 받을 수 있는 최대 횟수. 0이면 무제한',
     example: 5,
     example2: 3,
+    example3: 1,
+    example4: 0,
     transform: (raw) => {
       const n = Number(raw);
       if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수');
@@ -137,9 +170,12 @@ const CSV_IMPORT_COLUMNS = [
   },
   {
     key: 'maxCount',
-    header: 'maxCount',
-    description: '총 획득 최대 횟수 (0 = 무제한, 정수)',
+    header: '평생 총 한도 (0=무제한)',
+    description: '한 사용자가 이 활동으로 포인트를 받을 수 있는 누적 최대 횟수. 0이면 무제한. 업적처럼 1회성이면 1',
     example: 0,
+    example2: 0,
+    example3: 0,
+    example4: 1,
     transform: (raw) => {
       const n = Number(raw);
       if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수');
@@ -148,9 +184,12 @@ const CSV_IMPORT_COLUMNS = [
   },
   {
     key: 'cooldownSeconds',
-    header: 'cooldownSeconds',
-    description: '다음 획득까지 대기 초 (0 = 없음)',
+    header: '쿨다운 초 (0=없음)',
+    description: '직전 획득 이후 다음 획득까지 필요한 대기 시간(초). 0이면 쿨다운 없음. 예: 300(5분)',
     example: 0,
+    example2: 0,
+    example3: 0,
+    example4: 0,
     transform: (raw) => {
       const n = Number(raw);
       if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수');
@@ -159,10 +198,12 @@ const CSV_IMPORT_COLUMNS = [
   },
   {
     key: 'minContentLength',
-    header: 'minContentLength',
-    description: '최소 콘텐츠 길이 (글자 수, 0 = 제한 없음)',
-    example: 100,
-    example2: 50,
+    header: '최소 글자 수 (0=제한없음)',
+    description: '게시글·리뷰 등 콘텐츠 길이 요구 조건. 이 길이 미만이면 포인트 미지급. 0이면 길이 제한 없음',
+    example: 20,
+    example2: 100,
+    example3: 0,
+    example4: 0,
     transform: (raw) => {
       const n = Number(raw);
       if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수');
@@ -171,15 +212,23 @@ const CSV_IMPORT_COLUMNS = [
   },
   {
     key: 'limitType',
-    header: 'limitType',
-    description: '제한 유형 코드 (선택, 예: PER_TARGET/GLOBAL)',
+    header: '제한 유형 (선택, PER_TARGET / GLOBAL)',
+    description:
+      '한도 계산 범위 — PER_TARGET: 대상(게시글 ID·영화 ID)별로 한도 적용 ' +
+      '(예: 같은 게시글에 좋아요 1회) / GLOBAL: 사용자 전역 한도. 비워두면 서버 기본값',
     example: 'PER_TARGET',
+    example2: 'PER_TARGET',
+    example3: 'GLOBAL',
+    example4: 'GLOBAL',
   },
   {
     key: 'thresholdCount',
-    header: 'thresholdCount',
-    description: '임계값 도달 필요 횟수 (0 = 사용 안 함)',
+    header: '임계 횟수 (0=사용안함)',
+    description: '누적 N회 도달 시에만 지급하는 조건. 업적·마일스톤에서 주로 사용. 0이면 조건 미사용',
     example: 0,
+    example2: 0,
+    example3: 0,
+    example4: 1,
     transform: (raw) => {
       const n = Number(raw);
       if (!Number.isInteger(n) || n < 0) throw new Error('0 이상의 정수');
@@ -188,20 +237,23 @@ const CSV_IMPORT_COLUMNS = [
   },
   {
     key: 'thresholdTarget',
-    header: 'thresholdTarget',
-    description: '임계 대상 코드 (선택)',
+    header: '임계 대상 코드 (선택)',
+    description: '임계 조건이 참조하는 대상 코드 (예: 업적 코드). 일반 정책은 비워 둠',
+    example4: 'FIRST_REVIEW',
   },
   {
     key: 'parentActionType',
-    header: 'parentActionType',
-    description: '상위 액션 코드 (선택, 계층 구조용)',
+    header: '상위 액션 코드 (선택)',
+    description: '계층 구조가 필요한 경우에만 상위 정책의 액션 코드를 지정. 대부분 비움',
   },
   {
     key: 'isActive',
-    header: 'isActive',
-    description: '활성 여부 (true/false/1/0, 기본 true)',
+    header: '활성 여부 (true / false, 기본 true)',
+    description: '정책 활성 상태. true: 적용 / false: 비활성(지급 중단). 1/0/yes/no 도 허용',
     example: 'true',
     example2: 'true',
+    example3: 'true',
+    example4: 'true',
     transform: (raw) => {
       const v = String(raw).toLowerCase().trim();
       if (['true', '1', 'y', 'yes'].includes(v)) return true;
@@ -211,16 +263,21 @@ const CSV_IMPORT_COLUMNS = [
   },
   {
     key: 'description',
-    header: 'description',
-    description: '정책 설명 (선택)',
-    example: '일반 게시글 작성 시 10P 지급',
+    header: '정책 설명 (선택)',
+    description: '관리자가 정책 의도를 기억할 수 있도록 상세 설명을 남겨 두는 자유 텍스트',
+    example: '일반 게시글 작성 시 10P 지급 (20자 이상)',
     example2: '리뷰 작성 시 20P 지급 (100자 이상)',
+    example3: '하루에 한 번 출석하면 5P 지급',
+    example4: '최초 리뷰 작성 업적 달성 시 100P 보너스 (1회성)',
   },
   {
     key: 'changeReason',
-    header: 'changeReason',
-    description: '변경 사유 (선택, 미지정 시 "신규 정책 CSV 일괄 등록")',
+    header: '변경 사유 (선택, 미입력 시 "신규 정책 CSV 일괄 등록")',
+    description: '감사 로그(RewardPolicyHistory)에 기록되는 사유. 비워 두면 기본 문구로 자동 저장',
     example: 'CSV 초기 세팅',
+    example2: 'CSV 초기 세팅',
+    example3: 'CSV 초기 세팅',
+    example4: 'CSV 초기 세팅',
     transform: (raw) => raw || '신규 정책 CSV 일괄 등록',
   },
 ];
