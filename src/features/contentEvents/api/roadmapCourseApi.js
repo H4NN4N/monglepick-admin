@@ -71,3 +71,14 @@ export function updateCourse(id, payload) {
 export function updateCourseActive(id, isActive) {
   return backendApi.patch(`${BASE}/${id}/active`, { isActive });
 }
+
+/**
+ * 영화 제목 검색 (도장깨기 코스에 추가할 영화 선택용).
+ *
+ * @param {string} keyword - 검색 키워드 (한글/영문 모두 가능)
+ * @param {number} [size=10] - 최대 결과 수 (백엔드 최대 30)
+ * @returns {Promise<Array<{movieId, title, titleEn, releaseYear, director, posterPath}>>}
+ */
+export function searchMovies(keyword, size = 10) {
+  return backendApi.get(`${BASE}/movies/search`, { params: { keyword, size } });
+}
