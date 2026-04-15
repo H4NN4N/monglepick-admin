@@ -133,10 +133,15 @@ export function fetchPipelineStatus() {
 
 /**
  * 실행 중인 파이프라인 취소.
+ *
+ * 2026-04-15: Agent 는 다중 job 모델이라 `job_id` 가 필수다(없으면 422). 마지막 실행 시점에
+ * 받아둔 jobId 를 그대로 전달한다.
+ *
+ * @param {string} jobId - 취소할 작업 ID (runPipeline 응답의 job_id)
  * @returns {Promise<Object>} 취소 결과
  */
-export function cancelPipeline() {
-  return agentApi.post(DATA_ADMIN_ENDPOINTS.PIPELINE_CANCEL);
+export function cancelPipeline(jobId) {
+  return agentApi.post(DATA_ADMIN_ENDPOINTS.PIPELINE_CANCEL, { job_id: jobId });
 }
 
 /**
@@ -167,8 +172,14 @@ export function retryFailedPipeline() {
 /**
  * 파이프라인 SSE 로그 스트림 URL 반환.
  * EventSource로 직접 구독해야 하므로 URL 문자열만 반환.
- * @returns {string} SSE 엔드포인트 URL
+ *
+ * 2026-04-15: Agent (`/admin/pipeline/logs`) 는 `job_id` 쿼리 파라미터를 필수로 요구한다.
+ * jobId 없이 호출하면 422 가 떨어지므로 runPipeline 응답에서 받은 job_id 를 반드시 전달한다.
+ *
+ * @param {string} jobId - 작업 ID (runPipeline 응답의 job_id)
+ * @returns {string} SSE 엔드포인트 URL (쿼리 포함)
  */
-export function getPipelineLogUrl() {
-  return DATA_ADMIN_ENDPOINTS.PIPELINE_LOG;
+export function getPipelineLogUrl(jobId) {
+  const base = DATA_ADMIN_ENDPOINTS.PIPELINE_LOG;
+  return jobId ? `${base}?job_id=${encodeURIComponent(jobId)}` : base;
 }

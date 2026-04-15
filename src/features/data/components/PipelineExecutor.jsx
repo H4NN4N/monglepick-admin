@@ -20,17 +20,23 @@ import {
 } from '../api/dataApi';
 import { SERVICE_URLS } from '@/shared/api/serviceUrls';
 
-/** 실행 가능한 파이프라인 작업 9개 */
+/** 실행 가능한 파이프라인 작업 9개.
+ *
+ * 2026-04-15: Agent admin_data.py 의 PIPELINE_TASKS 와 task_code 를 1:1 일치시켰다.
+ * 기존 코드(`kobis_collect`/`kmdb_collect`/`embed_upsert`/`neo4j_sync`/`es_index`/`mood_enrich`/`resume`)는
+ * Agent 가 모르는 코드라 실행 시 400 이 떨어졌다. "중단 재개" 는 별도 작업이 아니라 각 작업의
+ * `--resume` 옵션이므로, 아래 체크박스(`체크포인트부터 재개`) 로 통합 처리한다.
+ */
 const PIPELINE_TASKS = [
-  { value: 'full_reload', label: '전체 재적재', desc: '5DB 모두 클리어 후 재적재 (장시간)' },
-  { value: 'tmdb_collect', label: 'TMDB 수집', desc: 'TMDB 신규 영화 수집 및 업데이트' },
-  { value: 'kobis_collect', label: 'KOBIS 수집', desc: 'KOBIS 영화 정보 수집' },
-  { value: 'kmdb_collect', label: 'KMDb 수집', desc: 'KMDb 한국영화 정보 수집' },
-  { value: 'embed_upsert', label: '임베딩 적재', desc: 'Solar 임베딩 생성 후 Qdrant 업서트' },
-  { value: 'neo4j_sync', label: 'Neo4j 동기화', desc: 'MySQL → Neo4j 그래프 동기화' },
-  { value: 'es_index', label: 'ES 인덱싱', desc: 'Elasticsearch 인덱스 재구축' },
-  { value: 'mood_enrich', label: '무드태그 보강', desc: 'Solar Pro로 무드태그 일괄 생성' },
-  { value: 'resume', label: '중단 재개', desc: '마지막 체크포인트부터 재개' },
+  { value: 'full_reload',       label: '전체 재적재',        desc: '1.17M 건 TMDB JSONL + Kaggle 보강 + CF 재구축. ~6~10시간 소요' },
+  { value: 'tmdb_collect',      label: 'TMDB 수집',          desc: 'TMDB API 로 영화 메타데이터를 수집하여 JSONL 로 저장' },
+  { value: 'kaggle_supplement', label: 'Kaggle 보강',        desc: 'Kaggle 26M 시청 이력 데이터로 CF 학습 데이터를 보강' },
+  { value: 'kobis_load',        label: 'KOBIS 적재',         desc: 'KOBIS API 로 한국영화 정보를 적재' },
+  { value: 'kmdb_load',         label: 'KMDb 적재',          desc: 'KMDb API 로 한국영화 상세 메타데이터를 적재' },
+  { value: 'mood_enrichment',   label: '무드 태그 보강',     desc: 'Ollama 또는 Solar 로 영화 무드 태그를 생성/보강' },
+  { value: 'es_sync',           label: 'Elasticsearch 동기화', desc: 'MySQL → Elasticsearch 인덱스 동기화 (Nori 한국어 분석기)' },
+  { value: 'mysql_sync',        label: 'MySQL 동기화',       desc: '외부 소스 → MySQL movies 테이블 동기화' },
+  { value: 'cf_only',           label: 'CF 매트릭스 재구축', desc: 'Kaggle 시청 이력 기반 CF 매트릭스를 재구축하여 Redis 캐시' },
 ];
 
 /** 파이프라인 상태 → 뱃지 매핑 */
@@ -67,6 +73,15 @@ export default function PipelineExecutor() {
   /* ── 체크포인트 ── */
   const [checkpoint, setCheckpoint] = useState(null);
 
+  /* ── 마지막 실행 jobId — SSE 구독 + 취소 호출에 필수 ──
+   *
+   * 2026-04-15: Agent (`/admin/pipeline/logs`, `/admin/pipeline/cancel`) 는 다중 job 모델이라
+   * job_id 가 필수다. runPipeline 응답에서 받은 job_id 를 ref 로 보관하여 SSE 구독·취소에 전달한다.
+   * 새로고침 후에도 RUNNING 인 작업이 있으면 status EP 응답에서 jobId 를 복구할 수 있도록
+   * 별도 effect 에서 보강한다.
+   */
+  const currentJobIdRef = useRef(null);
+
   /* ── polling 타이머 ── */
   const pollTimerRef = useRef(null);
 
@@ -75,6 +90,11 @@ export default function PipelineExecutor() {
     try {
       const result = await fetchPipelineStatus();
       setPipelineStatus(result);
+      // 새로고침 직후 등 currentJobIdRef 가 비어있는 상태에서 RUNNING 작업이 잡히면
+      // 응답의 jobId 를 ref 에 복구해두어 취소/SSE 호출이 정상 동작하게 한다.
+      if (result?.jobId && !currentJobIdRef.current) {
+        currentJobIdRef.current = result.jobId;
+      }
       setStatusError(null);
     } catch (err) {
       setStatusError(err.message);
@@ -131,11 +151,23 @@ export default function PipelineExecutor() {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
-    const url = `${SERVICE_URLS.AGENT}${getPipelineLogUrl()}`;
+    const jobId = currentJobIdRef.current;
+    if (!jobId) {
+      // jobId 가 없으면 SSE 가 422 로 떨어지므로 안내 로그만 남기고 종료
+      setLogs((prev) => [...prev, '[경고] jobId 가 없어 로그 스트림을 시작할 수 없습니다.']);
+      return;
+    }
+    const url = `${SERVICE_URLS.AGENT}${getPipelineLogUrl(jobId)}`;
     const es = new EventSource(url, { withCredentials: false });
 
-    es.onmessage = (e) => {
+    // Agent 는 named event 로 보낸다 (admin_data.py: event="log" / event="done").
+    // EventSource.onmessage 는 기본 event 만 받기 때문에 'log' 는 별도 listener 가 필요하다.
+    es.addEventListener('log', (e) => {
       setLogs((prev) => [...prev.slice(-500), e.data]); // 최대 500줄 유지
+    });
+    // 호환성 — 기본 event 로 들어오는 경우도 받아둔다.
+    es.onmessage = (e) => {
+      setLogs((prev) => [...prev.slice(-500), e.data]);
     };
 
     es.addEventListener('done', () => {
@@ -157,15 +189,19 @@ export default function PipelineExecutor() {
     setRunLoading(true);
     setLogs([]);
     try {
+      // 2026-04-15: Agent PipelineRunRequest 는 `{ task_code, args: string[] }` 를 기대한다.
+      // 기존 `{ task, options: { clear_db, resume } }` 구조는 422 가 떨어지므로 변환한다.
+      const args = [];
+      if (clearDb) args.push('--clear-db');
+      if (resumeMode) args.push('--resume');
       const payload = {
-        task: selectedTask,
-        options: {
-          clear_db: clearDb,
-          resume: resumeMode,
-        },
+        task_code: selectedTask,
+        args,
       };
-      await runPipeline(payload);
-      setLogs([`[시작] ${PIPELINE_TASKS.find((t) => t.value === selectedTask)?.label} 파이프라인 실행`]);
+      const response = await runPipeline(payload);
+      // SSE/취소에 필요한 jobId 보관
+      currentJobIdRef.current = response?.jobId ?? response?.job_id ?? null;
+      setLogs([`[시작] ${PIPELINE_TASKS.find((t) => t.value === selectedTask)?.label} 파이프라인 실행 (jobId=${currentJobIdRef.current ?? 'N/A'})`]);
       // SSE 로그 구독
       subscribeLogStream();
       // 상태 즉시 갱신
@@ -181,8 +217,12 @@ export default function PipelineExecutor() {
   async function handleCancel() {
     setCancelLoading(true);
     try {
-      await cancelPipeline();
-      setLogs((prev) => [...prev, '[취소] 파이프라인 취소 요청 전송']);
+      const jobId = currentJobIdRef.current;
+      if (!jobId) {
+        throw new Error('취소할 jobId 가 없습니다. (페이지 새로고침 후 상태 EP 응답에 jobId 가 누락된 경우)');
+      }
+      await cancelPipeline(jobId);
+      setLogs((prev) => [...prev, `[취소] 파이프라인 취소 요청 전송 (jobId=${jobId})`]);
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
