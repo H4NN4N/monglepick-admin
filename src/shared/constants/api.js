@@ -28,6 +28,8 @@ export const SYSTEM_ENDPOINTS = {
   DB: `${ADMIN}/system/db`,
   /** Ollama 모델 상태 - GET (Agent) */
   OLLAMA: `${ADMIN}/system/ollama`,
+  /** vLLM 모델 상태(Chat/Vision) - GET (Agent) */
+  VLLM: `${ADMIN}/system/vllm`,
   /** 현재 설정값 조회 - GET (Backend) */
   CONFIG: `${ADMIN}/system/config`,
 };
