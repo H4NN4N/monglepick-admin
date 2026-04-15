@@ -26,16 +26,17 @@ import {
 } from 'react-icons/md';
 
 /**
- * 외부 접근 공통 정보.
- * VM1 Nginx(:8082)가 Basic Auth 1차 + 각 도구 2차 인증으로 중계한다.
+ * 외부 접근 공통 정보 (2026-04-15 정정).
+ * VM1 Nginx 의 `/monitoring/*` 경로가 VM3 모니터링 스택으로 직접 프록시한다.
+ * 별도 Basic Auth 1차는 없고(0.0.0.0 허용), 각 도구가 자체 2차 인증만 요구한다.
+ * 단일 진실 원본: `docs/모니터링_접속_가이드.md` §1 방법 A.
  */
-const EXTERNAL_HOST = 'http://210.109.15.187:8082';
-const BASIC_AUTH_USER = 'admin';
-const BASIC_AUTH_PASSWORD = 'monglepick2026!';
+const EXTERNAL_HOST = 'http://210.109.15.187/monitoring';
 
 /**
  * 모니터링 도구 카드 정의.
  * 순서: 대시보드(Grafana) → 로그(Kibana) → 메트릭(Prometheus) → 알림(Alertmanager).
+ * 각 도구의 secondAuth 는 `user / password` 실값 또는 `없음`.
  */
 const TOOLS = [
   {
@@ -44,7 +45,7 @@ const TOOLS = [
     subtitle: '메트릭 대시보드',
     icon: MdDashboard,
     url: `${EXTERNAL_HOST}/grafana/`,
-    secondAuth: 'GRAFANA_USER / GRAFANA_PASSWORD (.env)',
+    secondAuth: 'monglepick / monglepick',
     purpose: 'VM/컨테이너/앱/DB/GPU 메트릭의 시계열 대시보드',
     tips: [
       '추천 대시보드: `Monglepick Overview` — SLO(Targets UP/DOWN, 5xx율, GPU, p95 latency) 한눈에',
@@ -58,7 +59,7 @@ const TOOLS = [
     subtitle: '로그 탐색',
     icon: MdSearch,
     url: `${EXTERNAL_HOST}/kibana/`,
-    secondAuth: 'elastic / ELASTIC_PASSWORD',
+    secondAuth: 'elastic / 98ae9cfdff90104b87bedf04154d5316',
     purpose: 'Spring/Agent/Recommend/Nginx JSON 로그의 통합 검색과 실시간 스트림',
     tips: [
       '대시보드 → `[몽글픽] 로그 개요 — 실시간` 에서 전 서비스 한눈 조망',
@@ -72,7 +73,7 @@ const TOOLS = [
     subtitle: '메트릭 원본 + 타겟 상태',
     icon: MdQueryStats,
     url: `${EXTERNAL_HOST}/prometheus/`,
-    secondAuth: '없음 (1차 Basic Auth 만)',
+    secondAuth: '없음 (로그인 불필요)',
     purpose: '스크레이프 타겟 UP/DOWN 확인과 PromQL 원본 쿼리',
     tips: [
       '`Status → Targets` 에서 14개 스크레이프 잡의 UP/DOWN 즉시 확인',
@@ -85,8 +86,8 @@ const TOOLS = [
     name: 'Alertmanager',
     subtitle: '알림 라우팅/현황',
     icon: MdNotificationsActive,
-    url: `${EXTERNAL_HOST}:9093/`,
-    secondAuth: '없음 (내부망 + 1차 Basic Auth 필요)',
+    url: `${EXTERNAL_HOST}/alertmanager/`,
+    secondAuth: '없음 (로그인 불필요)',
     purpose: '현재 발화 중(firing) 알림 목록과 음소거(silence)',
     tips: [
       'Alerts 탭 → firing/suppressed 필터',
@@ -153,9 +154,11 @@ export default function MonitoringGuide() {
         </DocLink>
       </SectionHeader>
 
-      {/* ── 공통 Basic Auth 안내 배너 ─────────────────────────────────── */}
+      {/* ── 외부 접근 공통 안내 배너 ─────────────────────────────────── */}
+      {/* 2026-04-15 정정: VM1 `/monitoring/*` 경유는 Basic Auth 1차 없음.
+          각 도구 자체 2차 인증만 필요하다 (예: Grafana monglepick / monglepick). */}
       <AuthBanner>
-        <AuthTitle>🔐 공통 1차 인증 (VM1 Nginx Basic Auth)</AuthTitle>
+        <AuthTitle>🌐 공개 접속 경로 (VM1 Nginx `/monitoring/*`)</AuthTitle>
         <AuthGrid>
           <AuthItem>
             <AuthLabel>엔드포인트</AuthLabel>
@@ -171,36 +174,16 @@ export default function MonitoringGuide() {
             </AuthValueRow>
           </AuthItem>
           <AuthItem>
-            <AuthLabel>사용자</AuthLabel>
+            <AuthLabel>1차 인증</AuthLabel>
             <AuthValueRow>
-              <AuthValue>{BASIC_AUTH_USER}</AuthValue>
-              <CopyButton
-                type="button"
-                onClick={() => copyToClipboard(BASIC_AUTH_USER)}
-                title="복사"
-              >
-                <MdContentCopy size={14} />
-              </CopyButton>
-            </AuthValueRow>
-          </AuthItem>
-          <AuthItem>
-            <AuthLabel>비밀번호</AuthLabel>
-            <AuthValueRow>
-              <AuthValue>{BASIC_AUTH_PASSWORD}</AuthValue>
-              <CopyButton
-                type="button"
-                onClick={() => copyToClipboard(BASIC_AUTH_PASSWORD)}
-                title="복사"
-              >
-                <MdContentCopy size={14} />
-              </CopyButton>
+              <AuthValue>없음 (VM1 Nginx 직접 프록시)</AuthValue>
             </AuthValueRow>
           </AuthItem>
         </AuthGrid>
         <AuthNote>
-          외부 접속은 VM1(210.109.15.187) 8082 포트 경유. 보안그룹에서 관리자 IP 만
-          허용되거나 0.0.0.0/0 에 개방되어 있을 수 있으므로 공용 네트워크 사용 시 주의.
-          각 도구는 추가로 2차 인증이 필요하다.
+          별도 Basic Auth 없이 공개 경로로 열려 있으므로 공용 네트워크에서 접근 시
+          주의. 도구별 2차 인증은 아래 카드의 <b>2차 인증</b> 필드 참고.
+          (단일 진실 원본: <MonoText>docs/모니터링_접속_가이드.md</MonoText>)
         </AuthNote>
       </AuthBanner>
 
