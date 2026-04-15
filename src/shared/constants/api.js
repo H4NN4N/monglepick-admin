@@ -127,7 +127,8 @@ export const DATA_ADMIN_ENDPOINTS = {
   MOVIE_DB_STATUS: (id) => `${ADMIN}/movies/${id}/db-status`,
   PIPELINE_RUN: `${ADMIN}/pipeline/run`,
   PIPELINE_STATUS: `${ADMIN}/pipeline/status`,
-  PIPELINE_LOG: `${ADMIN}/pipeline/log/stream`,
+  // 2026-04-15: Agent admin_data.py 는 SSE 경로가 `/pipeline/logs` 이다 (기존 `/pipeline/log/stream` 은 404).
+  PIPELINE_LOG: `${ADMIN}/pipeline/logs`,
   PIPELINE_CANCEL: `${ADMIN}/pipeline/cancel`,
   PIPELINE_HISTORY: `${ADMIN}/pipeline/history`,
   PIPELINE_CHECKPOINT: `${ADMIN}/pipeline/checkpoint`,
