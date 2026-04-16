@@ -13,6 +13,11 @@
  *    공통 Basic Auth 계정 + 각 도구 용도/간단 사용법 + 주요 알림 룰 요약).
  *    단일 진실 원본은 `docs/모니터링_관찰성_스택.md`.
  *
+ * 2026-04-16 개편:
+ *  - 모니터링 접속 가이드에서 Prometheus 카드 제거 (운영자는 Grafana 로 소화)
+ *  - Neo4j Browser 섹션 추가 (빠른 쿼리 프리필 5종 포함, URL 기반 자동 실행 불가 안내)
+ *  - Swagger / OpenAPI 문서 카드 3종 추가 (Backend / Agent / Recommend)
+ *
  * 7개 섹션 (모두 조회 전용, 위→아래 순):
  *  - 서비스 상태: 4개 서비스 헬스체크 (Spring Boot / Agent / Recommend / Nginx)
  *  - DB 상태: 5개 DB 커넥션/쿼리 상태 (MySQL / Redis / Qdrant / Neo4j / ES)
