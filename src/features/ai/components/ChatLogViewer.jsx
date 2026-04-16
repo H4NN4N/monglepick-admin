@@ -120,7 +120,17 @@ export default function ChatLogViewer() {
     setMessagesLoading(true);
     try {
       const result = await fetchChatMessages(session.sessionId ?? session.id);
-      setMessages(Array.isArray(result) ? result : result?.messages ?? []);
+      // ChatSessionDetail.messages 는 JSON 문자열(DB TEXT 컬럼)이므로 파싱 필요.
+      // 배열 직접 반환, 객체 내 messages 필드(문자열 또는 배열), 기타 케이스를 모두 처리.
+      let parsed = [];
+      if (Array.isArray(result)) {
+        parsed = result;
+      } else if (typeof result?.messages === 'string') {
+        try { parsed = JSON.parse(result.messages); } catch { parsed = []; }
+      } else if (Array.isArray(result?.messages)) {
+        parsed = result.messages;
+      }
+      setMessages(Array.isArray(parsed) ? parsed : []);
     } catch (err) {
       setMessagesError(err.message);
     } finally {
