@@ -6,8 +6,8 @@
  * - 영화 검색 (신규 후보 등록용, 제목/인기도 범위 검색)
  * - 목록 조회 (페이징 + category 필터)
  * - 단건 조회
- * - 신규 등록 ((movieId, category) UNIQUE)
- * - 메타 수정 (isActive/adminNote, popularity는 DB 자동 반영)
+ * - 신규 등록 ((movieId, category_id) UNIQUE, 요청은 category_code 사용)
+ * - 메타 수정 (isActive, popularity는 DB 자동 반영)
  * - 활성화 토글
  * - 인기도 임계값 미만 일괄 비활성화
  * - hard delete
@@ -37,12 +37,11 @@ export function createCandidate(payload) {
   return backendApi.post(BASE, payload);
 }
 
-/** 여러 후보를 같은 카테고리로 일괄 등록 */
-export async function createCandidatesBulk({ movieIds, category, adminNote }) {
+/** 여러 후보를 같은 기존 카테고리(category_code)로 일괄 등록 */
+export async function createCandidatesBulk({ movieIds, category }) {
   const tasks = (movieIds || []).map((movieId) => createCandidate({
     movieId,
     category,
-    adminNote,
   }));
   const results = await Promise.allSettled(tasks);
   return {
