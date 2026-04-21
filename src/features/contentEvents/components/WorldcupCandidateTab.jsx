@@ -3,7 +3,8 @@
  *
  * 기능:
  * - 후보 목록 조회 (페이징 + 카테고리 필터)
- * - 신규 후보 등록 모달 (영화 제목/인기도 범위 검색 + 다중 선택 + category/adminNote)
+ * - 신규 후보 등록 모달 (영화 제목/인기도 범위 검색 + 다중 선택 + 기존 category 선택)
+ * - 월드컵 카테고리 관리 모달 (등록 + 수정)
  * - 메타 수정 모달
  * - 활성/비활성 토글
  * - 인기도 임계값 미만 일괄 비활성화 (인기 없는 영화 일괄 제외)
@@ -12,7 +13,7 @@
  * 운영 모델:
  * - WorldcupService.startWorldcup() 진입 시 활성 후보 풀에서 우선 선택
  * - 카테고리(예: DEFAULT/ACTION/DIRECTOR_NOLAN)별로 후보 묶어 다양한 토너먼트 운영
- * - (movieId, category) 복합 UNIQUE — 같은 영화를 여러 카테고리에 등록 가능
+ * - (movieId, category_id) 복합 UNIQUE — 같은 영화를 여러 카테고리에 등록 가능
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -27,31 +28,50 @@ import {
   deleteCandidate,
   searchMovies,
 } from '../api/worldcupCandidateApi';
+import {
+  fetchAllWorldcupCategories,
+  createWorldcupCategory,
+  updateWorldcupCategory,
+} from '../api/worldcupCategoryApi';
 
 const PAGE_SIZE = 10;
 const MODE_CREATE = 'CREATE';
 const MODE_EDIT = 'EDIT';
 const EMPTY_FORM = {
   movieId: '',
-  category: 'DEFAULT',
+  category: '',
   isActive: true,
-  adminNote: '',
+};
+const EMPTY_CATEGORY_FORM = {
+  categoryCode: '',
+  categoryName: '',
+  description: '',
 };
 
 export default function WorldcupCandidateTab() {
   /* ── 목록 상태 ── */
   const [candidates, setCandidates] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [totalPages, setTotalPages] = useState(0);
   const [page, setPage] = useState(0);
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [categoryFilterInput, setCategoryFilterInput] = useState('');
+  const [categoryFilterHovered, setCategoryFilterHovered] = useState(false);
+  const [categoryFilterFocused, setCategoryFilterFocused] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [error, setError] = useState(null);
 
   /* ── 모달 상태 ── */
   const [modalMode, setModalMode] = useState(null);
   const [editTargetId, setEditTargetId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [categoryModalMode, setCategoryModalMode] = useState(MODE_CREATE);
+  const [categoryEditTargetId, setCategoryEditTargetId] = useState(null);
+  const [categoryForm, setCategoryForm] = useState(EMPTY_CATEGORY_FORM);
   const [submitting, setSubmitting] = useState(false);
+  const [categorySubmitting, setCategorySubmitting] = useState(false);
   const [movieKeyword, setMovieKeyword] = useState('');
   const [moviePopularityMin, setMoviePopularityMin] = useState('');
   const [moviePopularityMax, setMoviePopularityMax] = useState('');
@@ -67,6 +87,24 @@ export default function WorldcupCandidateTab() {
   const [busyId, setBusyId] = useState(null);
   const [bulkThreshold, setBulkThreshold] = useState(5.0);
   const [bulkBusy, setBulkBusy] = useState(false);
+
+  const getDefaultCategoryCode = useCallback(() => {
+    const defaultCategory = categories.find((item) => item.categoryCode === 'DEFAULT');
+    return defaultCategory?.categoryCode ?? categories[0]?.categoryCode ?? '';
+  }, [categories]);
+  const selectedCategoryMissing = Boolean(
+    form.category && !categories.some((item) => item.categoryCode === form.category)
+  );
+  const filteredCategoryOptions = categories.filter((item) => {
+    const keyword = categoryFilterInput.trim().toLowerCase();
+    if (!keyword) return true;
+    return (
+      item.categoryCode?.toLowerCase().includes(keyword) ||
+      item.categoryName?.toLowerCase().includes(keyword)
+    );
+  });
+  const isCategoryFilterDropdownVisible =
+    (categoryFilterHovered || categoryFilterFocused) && categories.length > 0;
 
   const loadCandidates = useCallback(async () => {
     try {
@@ -84,16 +122,69 @@ export default function WorldcupCandidateTab() {
     }
   }, [page, categoryFilter]);
 
+  const loadCategories = useCallback(async () => {
+    try {
+      setCategoriesLoading(true);
+      const result = await fetchAllWorldcupCategories();
+      setCategories(Array.isArray(result) ? result : []);
+    } catch (err) {
+      setCategories([]);
+      console.error('월드컵 카테고리 목록 조회 실패:', err);
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }, []);
+
   useEffect(() => { loadCandidates(); }, [loadCandidates]);
+  useEffect(() => { loadCategories(); }, [loadCategories]);
   useEffect(() => () => clearTimeout(searchDebounceRef.current), []);
 
   function handleCategoryFilterChange(e) {
-    setCategoryFilter(e.target.value);
+    const value = e.target.value;
+    setCategoryFilterInput(value);
     setPage(0);
+
+    const normalizedValue = value.trim().toLowerCase();
+    if (!normalizedValue) {
+      setCategoryFilter('');
+      return;
+    }
+
+    const exactMatch = categories.find((item) =>
+      item.categoryCode?.toLowerCase() === normalizedValue ||
+      item.categoryName?.toLowerCase() === normalizedValue
+    );
+
+    setCategoryFilter(exactMatch?.categoryCode ?? '');
+  }
+
+  function handleCategoryFilterSelect(category) {
+    setCategoryFilterInput(category.categoryName ?? category.categoryCode ?? '');
+    setCategoryFilter(category.categoryCode ?? '');
+    setPage(0);
+    setCategoryFilterFocused(false);
+  }
+
+  function handleCategoryFilterClear() {
+    setCategoryFilterInput('');
+    setCategoryFilter('');
+    setPage(0);
+    setCategoryFilterFocused(false);
   }
 
   function openCreateModal() {
-    setForm(EMPTY_FORM);
+    if (categoriesLoading) {
+      alert('카테고리 목록을 불러오는 중입니다. 잠시 후 다시 시도하세요.');
+      return;
+    }
+    if (categories.length === 0) {
+      alert('등록된 월드컵 카테고리가 없습니다. 먼저 `카테고리 등록`으로 카테고리를 추가하세요.');
+      return;
+    }
+    setForm({
+      ...EMPTY_FORM,
+      category: getDefaultCategoryCode(),
+    });
     setMovieKeyword('');
     setMoviePopularityMin('');
     setMoviePopularityMax('');
@@ -109,9 +200,8 @@ export default function WorldcupCandidateTab() {
   function openEditModal(item) {
     setForm({
       movieId: item.movieId ?? '',
-      category: item.category ?? 'DEFAULT',
+      category: item.category ?? '',
       isActive: !!item.isActive,
-      adminNote: item.adminNote ?? '',
     });
     setMovieKeyword('');
     setMoviePopularityMin('');
@@ -123,6 +213,32 @@ export default function WorldcupCandidateTab() {
     setSelectedMovies([]);
     setEditTargetId(item.id);
     setModalMode(MODE_EDIT);
+  }
+
+  function openCategoryModal() {
+    setCategoryForm(EMPTY_CATEGORY_FORM);
+    setCategoryModalMode(MODE_CREATE);
+    setCategoryEditTargetId(null);
+    setCategorySubmitting(false);
+    setCategoryModalOpen(true);
+  }
+
+  function startCategoryCreate() {
+    setCategoryForm(EMPTY_CATEGORY_FORM);
+    setCategoryModalMode(MODE_CREATE);
+    setCategoryEditTargetId(null);
+    setCategorySubmitting(false);
+  }
+
+  function startCategoryEdit(category) {
+    setCategoryForm({
+      categoryCode: category.categoryCode ?? '',
+      categoryName: category.categoryName ?? '',
+      description: category.description ?? '',
+    });
+    setCategoryModalMode(MODE_EDIT);
+    setCategoryEditTargetId(category.categoryId);
+    setCategorySubmitting(false);
   }
 
   function closeModal() {
@@ -141,11 +257,27 @@ export default function WorldcupCandidateTab() {
     setSubmitting(false);
   }
 
+  function closeCategoryModal() {
+    setCategoryModalOpen(false);
+    setCategoryForm(EMPTY_CATEGORY_FORM);
+    setCategoryModalMode(MODE_CREATE);
+    setCategoryEditTargetId(null);
+    setCategorySubmitting(false);
+  }
+
   function handleFormChange(e) {
     const { name, value, type, checked } = e.target;
     setForm((prev) => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
+    }));
+  }
+
+  function handleCategoryFormChange(e) {
+    const { name, value } = e.target;
+    setCategoryForm((prev) => ({
+      ...prev,
+      [name]: value,
     }));
   }
 
@@ -255,18 +387,20 @@ export default function WorldcupCandidateTab() {
       alert('후보에 추가할 영화를 1개 이상 선택하세요.');
       return;
     }
+    if (!form.category?.trim()) {
+      alert('등록할 카테고리를 선택하세요.');
+      return;
+    }
     try {
       setSubmitting(true);
       const payload = {
         isActive: !!form.isActive,
-        adminNote: form.adminNote || null,
       };
       if (modalMode === MODE_CREATE) {
-        const category = form.category?.trim() || 'DEFAULT';
+        const category = form.category.trim();
         const result = await createCandidatesBulk({
           movieIds: selectedMovies.map((movie) => movie.movieId),
           category,
-          adminNote: payload.adminNote,
         });
         if (result.created === 0) {
           alert(result.failed[0] || '후보 등록에 실패했습니다.');
@@ -287,6 +421,52 @@ export default function WorldcupCandidateTab() {
       alert(err.message || '저장 중 오류가 발생했습니다.');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleCategorySubmit(e) {
+    e.preventDefault();
+    if (categorySubmitting) return;
+
+    const categoryCode = categoryForm.categoryCode?.trim();
+    const categoryName = categoryForm.categoryName?.trim();
+    const description = categoryForm.description?.trim() || null;
+
+    if (!categoryCode || !categoryName) {
+      alert('카테고리 코드와 카테고리 명을 입력하세요.');
+      return;
+    }
+
+    try {
+      setCategorySubmitting(true);
+      if (categoryModalMode === MODE_CREATE) {
+        await createWorldcupCategory({
+          categoryCode,
+          categoryName,
+          description,
+        });
+      } else {
+        if (categoryEditTargetId == null) {
+          alert('수정할 카테고리를 다시 선택하세요.');
+          return;
+        }
+        await updateWorldcupCategory(categoryEditTargetId, {
+          categoryName,
+          description,
+        });
+      }
+      await loadCategories();
+      await loadCandidates();
+      if (categoryModalMode === MODE_CREATE) {
+        startCategoryCreate();
+        alert(`카테고리 ${categoryCode}를 등록했습니다.`);
+      } else {
+        alert(`카테고리 ${categoryCode}를 수정했습니다.`);
+      }
+    } catch (err) {
+      alert(err.message || '카테고리 저장 중 오류가 발생했습니다.');
+    } finally {
+      setCategorySubmitting(false);
     }
   }
 
@@ -347,17 +527,57 @@ export default function WorldcupCandidateTab() {
       <Toolbar>
         <ToolbarLeft>
           <ToolbarTitle>월드컵 후보 영화 관리</ToolbarTitle>
-          <FilterInput
-            type="text"
-            placeholder="카테고리 필터 (예: DEFAULT)"
-            value={categoryFilter}
-            onChange={handleCategoryFilterChange}
-          />
+          <FilterWrap
+            onMouseEnter={() => setCategoryFilterHovered(true)}
+            onMouseLeave={() => setCategoryFilterHovered(false)}
+          >
+            <FilterInput
+              type="text"
+              placeholder="카테고리 필터 검색 (코드/이름)"
+              value={categoryFilterInput}
+              onChange={handleCategoryFilterChange}
+              onFocus={() => setCategoryFilterFocused(true)}
+              onBlur={() => setCategoryFilterFocused(false)}
+            />
+            {isCategoryFilterDropdownVisible && (
+              <FilterDropdown>
+                <FilterDropdownItem
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleCategoryFilterClear();
+                  }}
+                >
+                  전체 카테고리
+                </FilterDropdownItem>
+                {filteredCategoryOptions.length === 0 ? (
+                  <FilterDropdownEmpty>일치하는 카테고리가 없습니다.</FilterDropdownEmpty>
+                ) : (
+                  filteredCategoryOptions.map((category) => (
+                    <FilterDropdownItem
+                      key={category.categoryId}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleCategoryFilterSelect(category);
+                      }}
+                    >
+                      <FilterDropdownName>{category.categoryName}</FilterDropdownName>
+                      <FilterDropdownCode>{category.categoryCode}</FilterDropdownCode>
+                    </FilterDropdownItem>
+                  ))
+                )}
+              </FilterDropdown>
+            )}
+          </FilterWrap>
         </ToolbarLeft>
         <ToolbarRight>
           <PrimaryButton onClick={openCreateModal}>
             <MdAdd size={16} /> 신규 등록
           </PrimaryButton>
+          <SecondaryButton onClick={openCategoryModal}>
+            <MdAdd size={16} /> 카테고리 등록
+          </SecondaryButton>
           <IconButton onClick={loadCandidates} disabled={loading} title="새로고침">
             <MdRefresh size={16} />
           </IconButton>
@@ -400,18 +620,17 @@ export default function WorldcupCandidateTab() {
             <tr>
               <Th $w="60px">ID</Th>
               <Th $w="280px">영화 제목</Th>
-              <Th $w="160px">카테고리</Th>
+              <Th $w="180px">카테고리</Th>
               <Th $w="100px">인기도</Th>
               <Th $w="80px">활성</Th>
-              <Th>관리자 메모</Th>
               <Th $w="220px">액션</Th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7}><CenterCell>불러오는 중...</CenterCell></td></tr>
+              <tr><td colSpan={6}><CenterCell>불러오는 중...</CenterCell></td></tr>
             ) : candidates.length === 0 ? (
-              <tr><td colSpan={7}><CenterCell>등록된 후보가 없습니다.</CenterCell></td></tr>
+              <tr><td colSpan={6}><CenterCell>등록된 후보가 없습니다.</CenterCell></td></tr>
             ) : (
               candidates.map((item) => (
                 <Tr key={item.id}>
@@ -427,15 +646,17 @@ export default function WorldcupCandidateTab() {
                       </MovieListMeta>
                     </MovieTitleCell>
                   </Td>
-                  <Td><CategoryBadge>{item.category}</CategoryBadge></Td>
+                  <Td>
+                    <CategoryCell>
+                      <CategoryBadge>{item.category}</CategoryBadge>
+                      <CategoryNameText>{item.categoryName ?? '-'}</CategoryNameText>
+                    </CategoryCell>
+                  </Td>
                   <Td><MutedText>{(item.popularity ?? 0).toFixed(2)}</MutedText></Td>
                   <Td>
                     <StatusPill $active={item.isActive}>
                       {item.isActive ? '활성' : '비활성'}
                     </StatusPill>
-                  </Td>
-                  <Td>
-                    <NoteText>{item.adminNote ?? '-'}</NoteText>
                   </Td>
                   <Td>
                     <ActionGroup>
@@ -637,15 +858,25 @@ export default function WorldcupCandidateTab() {
                 )}
                 <Field>
                   <Label>카테고리 *</Label>
-                  <Input
-                    type="text"
+                  <Select
                     name="category"
                     value={form.category}
                     onChange={handleFormChange}
-                    disabled={modalMode === MODE_EDIT}
-                    maxLength={100}
-                    placeholder="DEFAULT / ACTION / DIRECTOR_NOLAN..."
-                  />
+                    disabled={modalMode === MODE_EDIT || categoriesLoading || categories.length === 0}
+                  >
+                    {selectedCategoryMissing && (
+                      <option value={form.category}>{form.category}</option>
+                    )}
+                    {categories.length === 0 ? (
+                      <option value="">등록된 카테고리 없음</option>
+                    ) : (
+                      categories.map((category) => (
+                        <option key={category.categoryId} value={category.categoryCode}>
+                          {category.categoryName} ({category.categoryCode})
+                        </option>
+                      ))
+                    )}
+                  </Select>
                 </Field>
               </FieldRow>
               {modalMode === MODE_EDIT ? (
@@ -654,7 +885,7 @@ export default function WorldcupCandidateTab() {
                 </FieldHint>
               ) : (
                 <FieldHint>
-                  선택한 영화들이 모두 같은 카테고리로 등록됩니다.
+                  선택한 영화들이 모두 같은 기존 카테고리로 등록됩니다. 새 카테고리는 상단 `카테고리 등록` 버튼에서만 만들 수 있습니다.
                 </FieldHint>
               )}
               <Field>
@@ -676,16 +907,6 @@ export default function WorldcupCandidateTab() {
                   </CheckboxLabel>
                 </Field>
               )}
-              <Field>
-                <Label>관리자 메모</Label>
-                <Textarea
-                  name="adminNote"
-                  value={form.adminNote}
-                  onChange={handleFormChange}
-                  rows={3}
-                  placeholder="큐레이션 사유, 마케팅 목적 등"
-                />
-              </Field>
               <DialogFooter>
                 <CancelButton type="button" onClick={closeModal}>취소</CancelButton>
                 <PrimaryButton type="submit" disabled={submitting}>
@@ -693,6 +914,105 @@ export default function WorldcupCandidateTab() {
                 </PrimaryButton>
               </DialogFooter>
             </form>
+          </DialogBox>
+        </Overlay>
+      )}
+
+      {categoryModalOpen && (
+        <Overlay onClick={closeCategoryModal}>
+          <DialogBox onClick={(e) => e.stopPropagation()}>
+            <DialogTitle>
+              {categoryModalMode === MODE_CREATE ? '월드컵 카테고리 등록' : '월드컵 카테고리 수정'}
+            </DialogTitle>
+            <form onSubmit={handleCategorySubmit}>
+              <Field>
+                <Label>카테고리 코드 *</Label>
+                <Input
+                  type="text"
+                  name="categoryCode"
+                  value={categoryForm.categoryCode}
+                  onChange={handleCategoryFormChange}
+                  maxLength={100}
+                  disabled={categoryModalMode === MODE_EDIT}
+                  placeholder="DEFAULT / ACTION_THEME / DIRECTOR_NOLAN"
+                />
+              </Field>
+              <Field>
+                <Label>카테고리 명 *</Label>
+                <Input
+                  type="text"
+                  name="categoryName"
+                  value={categoryForm.categoryName}
+                  onChange={handleCategoryFormChange}
+                  maxLength={100}
+                  placeholder="액션 특집 / 놀란 감독전"
+                />
+              </Field>
+              <Field>
+                <Label>카테고리 설명</Label>
+                <Textarea
+                  name="description"
+                  value={categoryForm.description}
+                  onChange={handleCategoryFormChange}
+                  rows={3}
+                  placeholder="이 카테고리에 포함할 후보 영화 기준을 설명합니다."
+                />
+              </Field>
+              {categoryModalMode === MODE_EDIT && (
+                <FieldHint>
+                  카테고리 코드는 식별자이므로 수정할 수 없습니다. 다른 코드가 필요하면 새 카테고리를 등록하세요.
+                </FieldHint>
+              )}
+              <DialogFooter>
+                {categoryModalMode === MODE_EDIT && (
+                  <SecondaryButton type="button" onClick={startCategoryCreate}>
+                    새 카테고리 입력
+                  </SecondaryButton>
+                )}
+                <CancelButton type="button" onClick={closeCategoryModal}>취소</CancelButton>
+                <PrimaryButton type="submit" disabled={categorySubmitting}>
+                  {categorySubmitting
+                    ? (categoryModalMode === MODE_CREATE ? '생성 중...' : '수정 중...')
+                    : (categoryModalMode === MODE_CREATE ? '생성' : '수정')}
+                </PrimaryButton>
+              </DialogFooter>
+            </form>
+            <CategoryManageSection>
+              <CategoryManageHeader>
+                <CategoryManageTitle>기존 카테고리</CategoryManageTitle>
+                <CategoryManageHint>
+                  수정할 카테고리를 선택하면 위 입력폼이 수정 모드로 전환됩니다.
+                </CategoryManageHint>
+              </CategoryManageHeader>
+              {categoriesLoading ? (
+                <FieldHint>카테고리 목록을 불러오는 중...</FieldHint>
+              ) : categories.length === 0 ? (
+                <FieldHint>등록된 카테고리가 없습니다.</FieldHint>
+              ) : (
+                <CategoryManageList>
+                  {categories.map((category) => (
+                    <CategoryManageItem
+                      key={category.categoryId}
+                      $active={category.categoryId === categoryEditTargetId}
+                    >
+                      <CategoryManageInfo>
+                        <CategoryManageCode>{category.categoryCode}</CategoryManageCode>
+                        <CategoryManageName>{category.categoryName}</CategoryManageName>
+                        <CategoryManageDescription>
+                          {category.description?.trim() || '설명 없음'}
+                        </CategoryManageDescription>
+                      </CategoryManageInfo>
+                      <SmallButton
+                        type="button"
+                        onClick={() => startCategoryEdit(category)}
+                      >
+                        <MdEdit size={13} /> 수정
+                      </SmallButton>
+                    </CategoryManageItem>
+                  ))}
+                </CategoryManageList>
+              )}
+            </CategoryManageSection>
           </DialogBox>
         </Overlay>
       )}
@@ -727,6 +1047,10 @@ const ToolbarRight = styled.div`
   align-items: center;
   gap: ${({ theme }) => theme.spacing.sm};
 `;
+const FilterWrap = styled.div`
+  position: relative;
+  width: 260px;
+`;
 const FilterInput = styled.input`
   padding: 6px 10px;
   font-size: ${({ theme }) => theme.fontSizes.sm};
@@ -734,8 +1058,60 @@ const FilterInput = styled.input`
   border-radius: 4px;
   background: ${({ theme }) => theme.colors.bgCard};
   color: ${({ theme }) => theme.colors.textPrimary};
-  width: 220px;
+  width: 100%;
   &:focus { border-color: ${({ theme }) => theme.colors.primary}; outline: none; }
+`;
+const FilterDropdown = styled.div`
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 6px;
+  background: ${({ theme }) => theme.colors.bgCard};
+  box-shadow: ${({ theme }) => theme.shadows.md};
+`;
+const FilterDropdownItem = styled.button`
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  text-align: left;
+  background: transparent;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  border-bottom: 1px solid ${({ theme }) => theme.colors.borderLight};
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.bgHover};
+  }
+`;
+const FilterDropdownName = styled.span`
+  min-width: 0;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  color: ${({ theme }) => theme.colors.textPrimary};
+`;
+const FilterDropdownCode = styled.span`
+  flex-shrink: 0;
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: ${({ theme }) => theme.colors.bgHover};
+  color: ${({ theme }) => theme.colors.textSecondary};
+`;
+const FilterDropdownEmpty = styled.div`
+  padding: 12px;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
 `;
 
 /* 일괄 작업 패널 */
@@ -811,6 +1187,18 @@ const PrimaryButton = styled.button`
   border-radius: 4px;
   &:hover:not(:disabled) { opacity: 0.9; }
   &:disabled { opacity: 0.5; }
+`;
+const SecondaryButton = styled(PrimaryButton)`
+  background: ${({ theme }) => theme.colors.bgCard};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+
+  &:hover:not(:disabled) {
+    border-color: ${({ theme }) => theme.colors.primary};
+    color: ${({ theme }) => theme.colors.primary};
+    background: ${({ theme }) => theme.colors.bgHover};
+    opacity: 1;
+  }
 `;
 const IconButton = styled.button`
   display: flex;
@@ -894,14 +1282,15 @@ const CategoryBadge = styled.span`
   background: ${({ theme }) => theme.colors.bgHover};
   border: 1px solid ${({ theme }) => theme.colors.border};
 `;
-const NoteText = styled.span`
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+const CategoryCell = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+`;
+const CategoryNameText = styled.span`
   font-size: ${({ theme }) => theme.fontSizes.xs};
   color: ${({ theme }) => theme.colors.textMuted};
-  max-width: 280px;
 `;
 const MutedText = styled.span`
   color: ${({ theme }) => theme.colors.textMuted};
@@ -1022,6 +1411,17 @@ const Input = styled.input`
   &:focus { border-color: ${({ theme }) => theme.colors.primary}; outline: none; }
   &:disabled { background: ${({ theme }) => theme.colors.bgHover}; opacity: 0.7; }
 `;
+const Select = styled.select`
+  width: 100%;
+  padding: 7px 10px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  background: ${({ theme }) => theme.colors.bgCard};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  &:focus { border-color: ${({ theme }) => theme.colors.primary}; outline: none; }
+  &:disabled { background: ${({ theme }) => theme.colors.bgHover}; opacity: 0.7; }
+`;
 const Textarea = styled.textarea`
   width: 100%;
   padding: 7px 10px;
@@ -1053,6 +1453,7 @@ const DialogFooter = styled.div`
   justify-content: flex-end;
   gap: ${({ theme }) => theme.spacing.sm};
   margin-top: ${({ theme }) => theme.spacing.lg};
+  flex-wrap: wrap;
 `;
 const CancelButton = styled.button`
   padding: 7px 16px;
@@ -1269,4 +1670,77 @@ const SelectedMovieRemoveButton = styled.button`
     border-color: ${({ theme }) => theme.colors.error};
     color: ${({ theme }) => theme.colors.error};
   }
+`;
+
+const CategoryManageSection = styled.div`
+  margin-top: ${({ theme }) => theme.spacing.xl};
+  padding-top: ${({ theme }) => theme.spacing.lg};
+  border-top: 1px solid ${({ theme }) => theme.colors.border};
+`;
+
+const CategoryManageHeader = styled.div`
+  margin-bottom: ${({ theme }) => theme.spacing.sm};
+`;
+
+const CategoryManageTitle = styled.h4`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  margin-bottom: 4px;
+`;
+
+const CategoryManageHint = styled.p`
+  font-size: 11px;
+  color: ${({ theme }) => theme.colors.textMuted};
+`;
+
+const CategoryManageList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+`;
+
+const CategoryManageItem = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid ${({ $active, theme }) =>
+    $active ? theme.colors.primary : theme.colors.border};
+  border-radius: 4px;
+  background: ${({ $active, theme }) =>
+    $active ? theme.colors.bgHover : theme.colors.bgCard};
+`;
+
+const CategoryManageInfo = styled.div`
+  min-width: 0;
+  flex: 1;
+`;
+
+const CategoryManageCode = styled.div`
+  display: inline-block;
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: ${({ theme }) => theme.colors.bgHover};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  margin-bottom: 6px;
+`;
+
+const CategoryManageName = styled.div`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ theme }) => theme.colors.textPrimary};
+`;
+
+const CategoryManageDescription = styled.div`
+  margin-top: 3px;
+  font-size: 11px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  line-height: 1.45;
+  white-space: pre-wrap;
 `;

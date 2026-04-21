@@ -66,8 +66,16 @@ const TARGET_TYPE_LABEL = {
   POST:    '게시글',
   COMMENT: '댓글',
   REVIEW:  '리뷰',
+  CHAT:    '채팅',
   USER:    '사용자',
   OTHER:   '기타',
+};
+
+const SEVERITY_LABEL = {
+  LOW: '경미',
+  MEDIUM: '주의',
+  HIGH: '고위험',
+  CRITICAL: '긴급',
 };
 
 /** 필터 옵션 */
@@ -95,6 +103,60 @@ function formatDate(dateStr) {
   const d = new Date(dateStr);
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function parseDetectedWords(detectedWords) {
+  if (!detectedWords) return [];
+
+  try {
+    const parsed = JSON.parse(detectedWords);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((word) => typeof word === 'string')
+        .map((word) => word.trim())
+        .filter(Boolean);
+    }
+  } catch {
+    // JSON이 아니면 아래 문자열 fallback 사용
+  }
+
+  return String(detectedWords)
+    .replace(/^\[/, '')
+    .replace(/\]$/, '')
+    .replaceAll('"', '')
+    .split(',')
+    .map((word) => word.trim())
+    .filter(Boolean);
+}
+
+function buildToxicityPreview(log) {
+  if (log.inputText?.trim()) {
+    return log.inputText.trim();
+  }
+
+  const detectedWords = parseDetectedWords(log.detectedWords);
+  if (detectedWords.length > 0) {
+    return `감지 단어: ${detectedWords.join(', ')}`;
+  }
+
+  const targetType = log.targetType ?? log.contentType;
+  const targetLabel = TARGET_TYPE_LABEL[targetType] ?? targetType ?? '콘텐츠';
+  if (log.contentId != null) {
+    return `${targetLabel} #${log.contentId}`;
+  }
+  return '(내용 없음)';
+}
+
+function buildToxicityReason(log) {
+  if (log.toxicityType?.trim()) {
+    return `자동 탐지 · ${log.toxicityType.trim()}`;
+  }
+
+  const severity = String(log.severity ?? '').trim().toUpperCase();
+  if (severity) {
+    return `자동 탐지 · ${SEVERITY_LABEL[severity] ?? severity}`;
+  }
+  return '자동 탐지';
 }
 
 /**
@@ -162,9 +224,9 @@ function normalizeToxicity(log) {
     source: 'toxicity',
     originalId: log.id,
     toxicityScore: log.toxicityScore ?? null,
-    targetType: log.targetType ?? 'OTHER',
-    preview: (log.inputText ?? '(내용 없음)').slice(0, 120),
-    reason: log.toxicityType ? `자동 탐지 · ${log.toxicityType}` : '자동 탐지',
+    targetType: log.targetType ?? log.contentType ?? 'OTHER',
+    preview: buildToxicityPreview(log).slice(0, 120),
+    reason: buildToxicityReason(log),
     userId: log.userId ?? '-',
     createdAt: log.createdAt,
     priority: 0,

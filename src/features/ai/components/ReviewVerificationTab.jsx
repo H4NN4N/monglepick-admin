@@ -141,9 +141,12 @@ export default function ReviewVerificationTab() {
       setLoading(true);
       setError(null);
       const result = await fetchReviewVerifications(buildParams());
+      // Spring Data 3.x: result.totalPages / Spring Data 4.x: result.page.totalPages
       setRows(result?.content ?? []);
-      setTotalPages(result?.totalPages ?? 0);
+      setTotalPages(result?.page?.totalPages ?? result?.totalPages ?? 0);
     } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[ReviewVerificationTab] 목록 조회 실패', err);
       setError(err?.message || '목록 조회 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
@@ -361,7 +364,7 @@ export default function ReviewVerificationTab() {
             {loading ? (
               <tr><td colSpan={8}><CenterCell>불러오는 중...</CenterCell></td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={8}><CenterCell>리뷰 인증 기록이 없습니다.</CenterCell></td></tr>
+              <tr><td colSpan={8}><CenterCell>리뷰 인증 기록이 없습니다. (사용자가 도장깨기 리뷰를 제출하면 이 목록에 나타납니다)</CenterCell></td></tr>
             ) : (
               rows.map((row) => {
                 const badge = REVIEW_STATUS_BADGE[row.reviewStatus] ?? { status: 'default', label: row.reviewStatus ?? '-' };

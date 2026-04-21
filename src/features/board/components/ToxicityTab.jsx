@@ -25,11 +25,11 @@ const MIN_SCORE_OPTIONS = [
 
 /** 조치 결과 상태 → StatusBadge variant 매핑 */
 const ACTION_TAKEN_BADGE = {
-  blinded: { status: 'warning', label: '블라인드' },
-  deleted: { status: 'error', label: '삭제됨' },
-  warned: { status: 'info', label: '경고' },
-  restored: { status: 'success', label: '복원됨' },
-  pending: { status: 'default', label: '대기' },
+  BLIND: { status: 'warning', label: '블라인드' },
+  DELETE: { status: 'error', label: '삭제됨' },
+  WARN: { status: 'info', label: '경고' },
+  NONE: { status: 'success', label: '정상 처리' },
+  PENDING: { status: 'default', label: '대기' },
 };
 
 /** 대상 타입 한국어 라벨 */
@@ -38,6 +38,13 @@ const TARGET_TYPE_LABELS = {
   REVIEW: '리뷰',
   COMMENT: '댓글',
   CHAT: '채팅',
+};
+
+const SEVERITY_LABELS = {
+  LOW: '경미',
+  MEDIUM: '주의',
+  HIGH: '고위험',
+  CRITICAL: '긴급',
 };
 
 /** 페이지당 항목 수 */
@@ -64,6 +71,67 @@ function formatDate(dateStr) {
   const d = new Date(dateStr);
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function parseDetectedWords(detectedWords) {
+  if (!detectedWords) return [];
+
+  try {
+    const parsed = JSON.parse(detectedWords);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((word) => typeof word === 'string')
+        .map((word) => word.trim())
+        .filter(Boolean);
+    }
+  } catch {
+    // JSON이 아니면 아래 문자열 fallback 사용
+  }
+
+  return String(detectedWords)
+    .replace(/^\[/, '')
+    .replace(/\]$/, '')
+    .replaceAll('"', '')
+    .split(',')
+    .map((word) => word.trim())
+    .filter(Boolean);
+}
+
+function getPreviewText(log) {
+  if (log.inputText?.trim()) {
+    return log.inputText.trim();
+  }
+
+  const detectedWords = parseDetectedWords(log.detectedWords);
+  if (detectedWords.length > 0) {
+    return `감지 단어: ${detectedWords.join(', ')}`;
+  }
+
+  const targetType = log.targetType ?? log.contentType;
+  const targetLabel = TARGET_TYPE_LABELS[targetType] ?? targetType ?? '콘텐츠';
+  if (log.contentId != null) {
+    return `${targetLabel} #${log.contentId}`;
+  }
+  return '-';
+}
+
+function getToxicityTypeLabel(log) {
+  if (log.toxicityType?.trim()) {
+    return log.toxicityType.trim();
+  }
+
+  const severity = String(log.severity ?? '').trim().toUpperCase();
+  return SEVERITY_LABELS[severity] ?? (severity || '-');
+}
+
+function getTargetTypeLabel(log) {
+  const targetType = log.targetType ?? log.contentType;
+  return TARGET_TYPE_LABELS[targetType] ?? targetType ?? '-';
+}
+
+function getActionTakenBadge(actionTaken) {
+  const normalized = String(actionTaken ?? 'PENDING').trim().toUpperCase() || 'PENDING';
+  return ACTION_TAKEN_BADGE[normalized] ?? { status: 'default', label: actionTaken ?? '-' };
 }
 
 export default function ToxicityTab() {
@@ -190,15 +258,16 @@ export default function ToxicityTab() {
               </tr>
             ) : (
               logs.map((log) => {
-                const actionBadge =
-                  ACTION_TAKEN_BADGE[log.actionTaken] ?? { status: 'default', label: log.actionTaken ?? '-' };
+                const actionBadge = getActionTakenBadge(log.actionTaken);
                 const scoreVal = log.toxicityScore ?? 0;
+                const previewText = getPreviewText(log);
+                const toxicityTypeLabel = getToxicityTypeLabel(log);
                 return (
                   <Tr key={log.id}>
                     {/* 입력 텍스트 미리보기 (100자 truncate) */}
                     <Td>
                       <PreviewText>
-                        {log.inputText ? log.inputText.slice(0, 100) : '-'}
+                        {previewText.slice(0, 100)}
                       </PreviewText>
                     </Td>
                     {/* 독성 점수 */}
@@ -214,7 +283,7 @@ export default function ToxicityTab() {
                     </Td>
                     {/* 독성 유형 */}
                     <Td>
-                      <MutedText>{log.toxicityType ?? '-'}</MutedText>
+                      <MutedText>{toxicityTypeLabel}</MutedText>
                     </Td>
                     {/* 조치 결과 */}
                     <Td>
@@ -224,7 +293,7 @@ export default function ToxicityTab() {
                     <Td>
                       <StatusBadge
                         status="info"
-                        label={TARGET_TYPE_LABELS[log.targetType] ?? log.targetType ?? '-'}
+                        label={getTargetTypeLabel(log)}
                       />
                     </Td>
                     {/* 사용자 ID */}
@@ -286,11 +355,11 @@ export default function ToxicityTab() {
               </InfoRow>
               <InfoRow>
                 <InfoLabel>독성 유형</InfoLabel>
-                <InfoValue>{actionTarget.toxicityType ?? '-'}</InfoValue>
+                <InfoValue>{getToxicityTypeLabel(actionTarget)}</InfoValue>
               </InfoRow>
               <InfoRow>
                 <InfoLabel>입력 텍스트</InfoLabel>
-                <InfoValue>{actionTarget.inputText ? actionTarget.inputText.slice(0, 200) : '-'}</InfoValue>
+                <InfoValue>{getPreviewText(actionTarget).slice(0, 200)}</InfoValue>
               </InfoRow>
 
               {/* 조치 설명 */}
