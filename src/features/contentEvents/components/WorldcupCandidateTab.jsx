@@ -46,6 +46,8 @@ const EMPTY_CATEGORY_FORM = {
   categoryCode: '',
   categoryName: '',
   description: '',
+  enabled: true,
+  displayOrder: '0',
 };
 
 export default function WorldcupCandidateTab() {
@@ -235,6 +237,8 @@ export default function WorldcupCandidateTab() {
       categoryCode: category.categoryCode ?? '',
       categoryName: category.categoryName ?? '',
       description: category.description ?? '',
+      enabled: category.enabled ?? true,
+      displayOrder: String(category.displayOrder ?? 0),
     });
     setCategoryModalMode(MODE_EDIT);
     setCategoryEditTargetId(category.categoryId);
@@ -274,10 +278,10 @@ export default function WorldcupCandidateTab() {
   }
 
   function handleCategoryFormChange(e) {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target;
     setCategoryForm((prev) => ({
       ...prev,
-      [name]: value,
+      [name]: type === 'checkbox' ? checked : value,
     }));
   }
 
@@ -431,9 +435,16 @@ export default function WorldcupCandidateTab() {
     const categoryCode = categoryForm.categoryCode?.trim();
     const categoryName = categoryForm.categoryName?.trim();
     const description = categoryForm.description?.trim() || null;
+    const enabled = !!categoryForm.enabled;
+    const displayOrderRaw = `${categoryForm.displayOrder ?? ''}`.trim();
+    const displayOrder = displayOrderRaw === '' ? 0 : Number(displayOrderRaw);
 
     if (!categoryCode || !categoryName) {
       alert('카테고리 코드와 카테고리 명을 입력하세요.');
+      return;
+    }
+    if (!Number.isInteger(displayOrder) || displayOrder < 0) {
+      alert('노출 우선순위는 0 이상의 정수만 입력할 수 있습니다.');
       return;
     }
 
@@ -444,6 +455,8 @@ export default function WorldcupCandidateTab() {
           categoryCode,
           categoryName,
           description,
+          enabled,
+          displayOrder,
         });
       } else {
         if (categoryEditTargetId == null) {
@@ -453,6 +466,8 @@ export default function WorldcupCandidateTab() {
         await updateWorldcupCategory(categoryEditTargetId, {
           categoryName,
           description,
+          enabled,
+          displayOrder,
         });
       }
       await loadCategories();
@@ -958,6 +973,41 @@ export default function WorldcupCandidateTab() {
                   placeholder="이 카테고리에 포함할 후보 영화 기준을 설명합니다."
                 />
               </Field>
+              <FieldRow>
+                <Field>
+                  <Label>카테고리 활성화</Label>
+                  <ToggleLabel>
+                    <ToggleInput
+                      type="checkbox"
+                      name="enabled"
+                      checked={!!categoryForm.enabled}
+                      onChange={handleCategoryFormChange}
+                    />
+                    <ToggleTrack $checked={!!categoryForm.enabled}>
+                      <ToggleThumb $checked={!!categoryForm.enabled} />
+                    </ToggleTrack>
+                    <ToggleText>{categoryForm.enabled ? '활성화' : '비활성화'}</ToggleText>
+                  </ToggleLabel>
+                  <FieldHint>
+                    비활성화하면 사용자 월드컵 카테고리 목록에서 숨겨집니다.
+                  </FieldHint>
+                </Field>
+                <Field>
+                  <Label>노출 우선순위</Label>
+                  <Input
+                    type="number"
+                    name="displayOrder"
+                    value={categoryForm.displayOrder}
+                    onChange={handleCategoryFormChange}
+                    min="0"
+                    step="1"
+                    placeholder="0"
+                  />
+                  <FieldHint>
+                    0 이상의 정수. 값이 높을수록 먼저 노출됩니다.
+                  </FieldHint>
+                </Field>
+              </FieldRow>
               {categoryModalMode === MODE_EDIT && (
                 <FieldHint>
                   카테고리 코드는 식별자이므로 수정할 수 없습니다. 다른 코드가 필요하면 새 카테고리를 등록하세요.
@@ -998,6 +1048,14 @@ export default function WorldcupCandidateTab() {
                       <CategoryManageInfo>
                         <CategoryManageCode>{category.categoryCode}</CategoryManageCode>
                         <CategoryManageName>{category.categoryName}</CategoryManageName>
+                        <CategoryMetaRow>
+                          <StatusPill $active={category.enabled}>
+                            {category.enabled ? '활성' : '비활성'}
+                          </StatusPill>
+                          <CategoryPriorityBadge>
+                            노출 우선순위 {category.displayOrder ?? 0}
+                          </CategoryPriorityBadge>
+                        </CategoryMetaRow>
                         <CategoryManageDescription>
                           {category.description?.trim() || '설명 없음'}
                         </CategoryManageDescription>
@@ -1448,6 +1506,45 @@ const CheckboxLabel = styled.label`
   color: ${({ theme }) => theme.colors.textPrimary};
   cursor: pointer;
 `;
+const ToggleLabel = styled.label`
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+`;
+const ToggleInput = styled.input`
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+`;
+const ToggleTrack = styled.span`
+  position: relative;
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  background: ${({ $checked, theme }) =>
+    $checked ? theme.colors.primary : theme.colors.border};
+  transition: background ${({ theme }) => theme.transitions.fast};
+  box-shadow: ${({ $checked, theme }) =>
+    $checked ? `0 0 0 4px ${theme.colors.primary}22` : 'none'};
+`;
+const ToggleThumb = styled.span`
+  position: absolute;
+  top: 3px;
+  left: ${({ $checked }) => ($checked ? '23px' : '3px')};
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.28);
+  transition: left ${({ theme }) => theme.transitions.fast};
+`;
+const ToggleText = styled.span`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ theme }) => theme.colors.textPrimary};
+`;
 const DialogFooter = styled.div`
   display: flex;
   justify-content: flex-end;
@@ -1735,6 +1832,26 @@ const CategoryManageName = styled.div`
   font-size: ${({ theme }) => theme.fontSizes.sm};
   font-weight: ${({ theme }) => theme.fontWeights.medium};
   color: ${({ theme }) => theme.colors.textPrimary};
+`;
+
+const CategoryMetaRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+`;
+
+const CategoryPriorityBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  background: ${({ theme }) => theme.colors.bgHover};
+  border: 1px solid ${({ theme }) => theme.colors.border};
 `;
 
 const CategoryManageDescription = styled.div`
