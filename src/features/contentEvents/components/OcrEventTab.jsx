@@ -11,15 +11,17 @@
  * 시작일/종료일은 datetime-local input으로 입력. ISO 형식으로 변환하여 백엔드 전송.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import styled from 'styled-components';
-import { MdRefresh, MdAdd, MdEdit, MdDelete } from 'react-icons/md';
+import { MdRefresh, MdAdd, MdEdit, MdDelete, MdList, MdCode } from 'react-icons/md';
 import {
   fetchOcrEvents,
   createOcrEvent,
   updateOcrEvent,
   updateOcrEventStatus,
   deleteOcrEvent,
+  fetchOcrVerifications,
+  reviewOcrVerification,
 } from '../api/ocrEventApi';
 /*
  * 2026-04-14: 운영자가 movie_id(VARCHAR PK) 를 외워 입력하던 부담을 제거하기 위해
@@ -35,6 +37,7 @@ import { normalizeMovie } from '@/shared/components/movieSearchPickerUtils';
 import { fetchMovieDetail } from '@/features/data/api/dataApi';
 
 const PAGE_SIZE = 10;
+const VERIFICATION_PAGE_SIZE = 10;
 
 const STATUS_FILTER_OPTIONS = [
   { value: '', label: '전체 상태' },
@@ -55,6 +58,14 @@ const STATUS_TRANSITION_BUTTONS = {
   ACTIVE: [{ label: '종료', target: 'CLOSED' }, { label: '대기로', target: 'READY' }],
   CLOSED: [{ label: '재개', target: 'ACTIVE' }],
 };
+
+const VERIFICATION_STATUS_FILTER_OPTIONS = [
+  { value: '', label: '전체' },
+  { value: 'PENDING', label: '심사 대기' },
+  { value: 'APPROVED', label: '승인' },
+  { value: 'REJECTED', label: '반려' },
+];
+const VERIFICATION_STATUS_COLOR = { PENDING: '#f59e0b', APPROVED: '#10b981', REJECTED: '#ef4444' };
 
 const MODE_CREATE = 'CREATE';
 const MODE_EDIT = 'EDIT';
@@ -112,6 +123,15 @@ export default function OcrEventTab() {
   const [formMovieLoading, setFormMovieLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [busyId, setBusyId] = useState(null);
+
+  const [verificationPanelEventId, setVerificationPanelEventId] = useState(null);
+  const [verifications, setVerifications] = useState([]);
+  const [verificationsLoading, setVerificationsLoading] = useState(false);
+  const [verificationsPage, setVerificationsPage] = useState(0);
+  const [verificationsTotalPages, setVerificationsTotalPages] = useState(0);
+  const [verificationStatusFilter, setVerificationStatusFilter] = useState('');
+  const [reviewingId, setReviewingId] = useState(null);
+  const [expandedRawId, setExpandedRawId] = useState(null);
 
   const loadEvents = useCallback(async () => {
     try {
@@ -263,6 +283,58 @@ export default function OcrEventTab() {
     }
   }
 
+  async function loadVerifications(eventId, pg, statusF) {
+    try {
+      setVerificationsLoading(true);
+      const params = { page: pg, size: VERIFICATION_PAGE_SIZE };
+      if (statusF) params.status = statusF;
+      const result = await fetchOcrVerifications(eventId, params);
+      setVerifications(result?.content ?? []);
+      setVerificationsTotalPages(result?.totalPages ?? 0);
+    } catch {
+      setVerifications([]);
+    } finally {
+      setVerificationsLoading(false);
+    }
+  }
+
+  function toggleVerificationPanel(eventId) {
+    if (verificationPanelEventId === eventId) {
+      setVerificationPanelEventId(null);
+      return;
+    }
+    setVerificationPanelEventId(eventId);
+    setVerificationsPage(0);
+    setVerificationStatusFilter('');
+    loadVerifications(eventId, 0, '');
+  }
+
+  async function handleReview(verificationId, action) {
+    if (reviewingId != null) return;
+    try {
+      setReviewingId(verificationId);
+      await reviewOcrVerification(verificationId, action);
+      loadVerifications(verificationPanelEventId, verificationsPage, verificationStatusFilter);
+    } catch (err) {
+      alert(err.message || '처리 실패');
+    } finally {
+      setReviewingId(null);
+    }
+  }
+
+  function handleVerificationFilterChange(e) {
+    const f = e.target.value;
+    setVerificationStatusFilter(f);
+    setVerificationsPage(0);
+    loadVerifications(verificationPanelEventId, 0, f);
+  }
+
+  function handleVerificationsPageChange(delta) {
+    const pg = verificationsPage + delta;
+    setVerificationsPage(pg);
+    loadVerifications(verificationPanelEventId, pg, verificationStatusFilter);
+  }
+
   return (
     <Container>
       <Toolbar>
@@ -312,52 +384,204 @@ export default function OcrEventTab() {
               <tr><td colSpan={7}><CenterCell>등록된 이벤트가 없습니다.</CenterCell></td></tr>
             ) : (
               events.map((item) => (
-                <Tr key={item.eventId}>
-                  <Td><MutedText>{item.eventId}</MutedText></Td>
-                  <Td><CodeText>{item.movieId}</CodeText></Td>
-                  {/*
-                   * 제목(굵게) + 메모 1-2줄 미리보기.
-                   * 메모는 overflow-wrap + line-clamp 로 넘치지 않게 처리.
-                   */}
-                  <Td>
-                    <TitleText>{item.title || <MutedText>(제목 없음)</MutedText>}</TitleText>
-                    {item.memo && <MemoPreview>{item.memo}</MemoPreview>}
-                  </Td>
-                  <Td>
-                    <PeriodText>
-                      {item.startDate?.replace('T', ' ').substring(0, 16)} ~{' '}
-                      {item.endDate?.replace('T', ' ').substring(0, 16)}
-                    </PeriodText>
-                  </Td>
-                  <Td>
-                    <StatusPill $color={STATUS_COLOR[item.status] ?? '#888'}>
-                      {item.status}
-                    </StatusPill>
-                  </Td>
-                  <Td><MutedText>{item.adminId ?? '-'}</MutedText></Td>
-                  <Td>
-                    <ActionGroup>
-                      <SmallButton onClick={() => openEditModal(item)}>
-                        <MdEdit size={13} /> 수정
-                      </SmallButton>
-                      {(STATUS_TRANSITION_BUTTONS[item.status] ?? []).map((btn) => (
+                <Fragment key={item.eventId}>
+                  <Tr>
+                    <Td><MutedText>{item.eventId}</MutedText></Td>
+                    <Td><CodeText>{item.movieId}</CodeText></Td>
+                    <Td>
+                      <TitleText>{item.title || <MutedText>(제목 없음)</MutedText>}</TitleText>
+                      {item.memo && <MemoPreview>{item.memo}</MemoPreview>}
+                    </Td>
+                    <Td>
+                      <PeriodText>
+                        {item.startDate?.replace('T', ' ').substring(0, 16)} ~{' '}
+                        {item.endDate?.replace('T', ' ').substring(0, 16)}
+                      </PeriodText>
+                    </Td>
+                    <Td>
+                      <StatusPill $color={STATUS_COLOR[item.status] ?? '#888'}>
+                        {item.status}
+                      </StatusPill>
+                    </Td>
+                    <Td><MutedText>{item.adminId ?? '-'}</MutedText></Td>
+                    <Td>
+                      <ActionGroup>
+                        <SmallButton onClick={() => openEditModal(item)}>
+                          <MdEdit size={13} /> 수정
+                        </SmallButton>
+                        {(STATUS_TRANSITION_BUTTONS[item.status] ?? []).map((btn) => (
+                          <SmallButton
+                            key={btn.target}
+                            onClick={() => handleTransition(item, btn.target)}
+                            disabled={busyId === item.eventId}
+                          >
+                            {btn.label}
+                          </SmallButton>
+                        ))}
                         <SmallButton
-                          key={btn.target}
-                          onClick={() => handleTransition(item, btn.target)}
+                          $active={verificationPanelEventId === item.eventId}
+                          onClick={() => toggleVerificationPanel(item.eventId)}
+                        >
+                          <MdList size={13} /> 인증 목록
+                        </SmallButton>
+                        <DangerSmallButton
+                          onClick={() => handleDelete(item)}
                           disabled={busyId === item.eventId}
                         >
-                          {btn.label}
-                        </SmallButton>
-                      ))}
-                      <DangerSmallButton
-                        onClick={() => handleDelete(item)}
-                        disabled={busyId === item.eventId}
-                      >
-                        <MdDelete size={13} /> 삭제
-                      </DangerSmallButton>
-                    </ActionGroup>
-                  </Td>
-                </Tr>
+                          <MdDelete size={13} /> 삭제
+                        </DangerSmallButton>
+                      </ActionGroup>
+                    </Td>
+                  </Tr>
+                  {verificationPanelEventId === item.eventId && (
+                    <tr>
+                      <td colSpan={7} style={{ padding: 0 }}>
+                        <VerificationPanel>
+                          <VerificationPanelHeader>
+                            <VerificationPanelTitle>
+                              인증 제출 목록 — 이벤트 #{item.eventId}
+                            </VerificationPanelTitle>
+                            <FilterSelect
+                              value={verificationStatusFilter}
+                              onChange={handleVerificationFilterChange}
+                              style={{ fontSize: '12px', padding: '4px 8px' }}
+                            >
+                              {VERIFICATION_STATUS_FILTER_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </FilterSelect>
+                          </VerificationPanelHeader>
+                          {verificationsLoading ? (
+                            <CenterCell>불러오는 중...</CenterCell>
+                          ) : verifications.length === 0 ? (
+                            <CenterCell>제출된 인증이 없습니다.</CenterCell>
+                          ) : (
+                            <VerificationTable>
+                              <thead>
+                                <tr>
+                                  <VTh $w="44px">ID</VTh>
+                                  <VTh $w="88px">유저</VTh>
+                                  <VTh $w="56px">영수증</VTh>
+                                  <VTh $w="140px">추출 영화명</VTh>
+                                  <VTh $w="96px">관람일시</VTh>
+                                  <VTh $w="44px">인원</VTh>
+                                  <VTh $w="72px">좌석</VTh>
+                                  <VTh $w="52px">상영관</VTh>
+                                  <VTh $w="110px">영화관</VTh>
+                                  <VTh $w="56px">신뢰도</VTh>
+                                  <VTh $w="80px">상태</VTh>
+                                  <VTh $w="100px">액션</VTh>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {verifications.map((v) => (
+                                  <Fragment key={v.verificationId}>
+                                    <VTr>
+                                      <VTd><MutedText>{v.verificationId}</MutedText></VTd>
+                                      <VTd><MutedText>{v.userNickname ?? v.userId ?? '-'}</MutedText></VTd>
+                                      <VTd>
+                                        {v.imageUrl ? (
+                                          <ReceiptThumb
+                                            src={v.imageUrl}
+                                            alt="영수증"
+                                            onClick={() => window.open(v.imageUrl, '_blank')}
+                                          />
+                                        ) : <MutedText>없음</MutedText>}
+                                      </VTd>
+                                      <VTd>{v.extractedMovieName ?? <MutedText>-</MutedText>}</VTd>
+                                      {/* 관람일시: watched_at 우선, 없으면 watch_date */}
+                                      <VTd>
+                                        <MutedText>
+                                          {v.extractedWatchedAt ?? v.extractedWatchDate ?? '-'}
+                                        </MutedText>
+                                      </VTd>
+                                      <VTd>
+                                        <MutedText>
+                                          {v.extractedHeadcount != null ? `${v.extractedHeadcount}명` : '-'}
+                                        </MutedText>
+                                      </VTd>
+                                      <VTd>
+                                        {v.extractedSeat
+                                          ? <SeatBadge>{v.extractedSeat}</SeatBadge>
+                                          : <MutedText>-</MutedText>}
+                                      </VTd>
+                                      <VTd>
+                                        {v.extractedTheater
+                                          ? <TheaterBadge>{v.extractedTheater}</TheaterBadge>
+                                          : <MutedText>-</MutedText>}
+                                      </VTd>
+                                      <VTd>
+                                        {v.extractedVenue ?? <MutedText>-</MutedText>}
+                                      </VTd>
+                                      <VTd>
+                                        {v.ocrConfidence != null
+                                          ? <ConfidenceBadge $pct={Math.round(v.ocrConfidence * 100)}>{Math.round(v.ocrConfidence * 100)}%</ConfidenceBadge>
+                                          : <MutedText>-</MutedText>}
+                                      </VTd>
+                                      <VTd>
+                                        <StatusPill $color={VERIFICATION_STATUS_COLOR[v.status] ?? '#888'}>
+                                          {v.status}
+                                        </StatusPill>
+                                      </VTd>
+                                      <VTd>
+                                        <ActionGroup>
+                                          {v.parsedText && (
+                                            <SmallButton
+                                              $active={expandedRawId === v.verificationId}
+                                              onClick={() => setExpandedRawId(
+                                                expandedRawId === v.verificationId ? null : v.verificationId
+                                              )}
+                                              title="OCR 원문 보기"
+                                            >
+                                              <MdCode size={13} /> 원문
+                                            </SmallButton>
+                                          )}
+                                          {v.status === 'PENDING' && (
+                                            <>
+                                              <ApproveButton
+                                                onClick={() => handleReview(v.verificationId, 'APPROVE')}
+                                                disabled={reviewingId != null}
+                                              >
+                                                승인
+                                              </ApproveButton>
+                                              <RejectButton
+                                                onClick={() => handleReview(v.verificationId, 'REJECT')}
+                                                disabled={reviewingId != null}
+                                              >
+                                                반려
+                                              </RejectButton>
+                                            </>
+                                          )}
+                                        </ActionGroup>
+                                      </VTd>
+                                    </VTr>
+                                    {expandedRawId === v.verificationId && v.parsedText && (
+                                      <tr>
+                                        <td colSpan={12} style={{ padding: 0 }}>
+                                          <RawTextPanel>
+                                            <RawTextLabel>OCR 원문 (정규화 전)</RawTextLabel>
+                                            <RawTextBody>{v.parsedText}</RawTextBody>
+                                          </RawTextPanel>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </Fragment>
+                                ))}
+                              </tbody>
+                            </VerificationTable>
+                          )}
+                          {verificationsTotalPages > 1 && (
+                            <Pagination style={{ marginTop: '8px' }}>
+                              <PageButton onClick={() => handleVerificationsPageChange(-1)} disabled={verificationsPage === 0}>이전</PageButton>
+                              <PageInfo>{verificationsPage + 1} / {verificationsTotalPages}</PageInfo>
+                              <PageButton onClick={() => handleVerificationsPageChange(1)} disabled={verificationsPage + 1 >= verificationsTotalPages}>다음</PageButton>
+                            </Pagination>
+                          )}
+                        </VerificationPanel>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))
             )}
           </tbody>
@@ -612,10 +836,10 @@ const SmallButton = styled.button`
   gap: 2px;
   padding: 3px 8px;
   font-size: ${({ theme }) => theme.fontSizes.xs};
-  border: 1px solid ${({ theme }) => theme.colors.border};
+  border: 1px solid ${({ $active, theme }) => $active ? theme.colors.primary : theme.colors.border};
   border-radius: 3px;
-  color: ${({ theme }) => theme.colors.textSecondary};
-  background: ${({ theme }) => theme.colors.bgCard};
+  color: ${({ $active, theme }) => $active ? theme.colors.primary : theme.colors.textSecondary};
+  background: ${({ $active, theme }) => $active ? theme.colors.bgHover : theme.colors.bgCard};
   &:hover:not(:disabled) {
     border-color: ${({ theme }) => theme.colors.primary};
     color: ${({ theme }) => theme.colors.primary};
@@ -755,4 +979,139 @@ const CancelButton = styled.button`
   color: ${({ theme }) => theme.colors.textSecondary};
   background: ${({ theme }) => theme.colors.bgCard};
   &:hover { background: ${({ theme }) => theme.colors.bgHover}; }
+`;
+
+/* ── Verification Panel ── */
+
+const VerificationPanel = styled.div`
+  background: ${({ theme }) => theme.colors.bgHover};
+  border-top: 2px solid ${({ theme }) => theme.colors.primary};
+  padding: ${({ theme }) => theme.spacing.md};
+`;
+const VerificationPanelHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: ${({ theme }) => theme.spacing.sm};
+`;
+const VerificationPanelTitle = styled.h4`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  color: ${({ theme }) => theme.colors.textPrimary};
+`;
+const VerificationTable = styled.table`
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: ${({ theme }) => theme.colors.bgCard};
+  border-radius: 4px;
+  overflow: hidden;
+`;
+const VTh = styled.th`
+  text-align: left;
+  padding: 7px 10px;
+  background: ${({ theme }) => theme.colors.bgHover};
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+  font-weight: ${({ theme }) => theme.fontWeights.semibold};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 11px;
+  white-space: nowrap;
+  width: ${({ $w }) => $w ?? 'auto'};
+`;
+const VTr = styled.tr`
+  border-bottom: 1px solid ${({ theme }) => theme.colors.borderLight};
+  &:last-child { border-bottom: none; }
+  &:hover { background: ${({ theme }) => theme.colors.bgHover}; }
+`;
+const VTd = styled.td`
+  padding: 7px 10px;
+  color: ${({ theme }) => theme.colors.textPrimary};
+  vertical-align: middle;
+  font-size: 12px;
+`;
+const ReceiptThumb = styled.img`
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  &:hover { opacity: 0.8; }
+`;
+const ConfidenceBadge = styled.span`
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  background: ${({ $pct }) => $pct >= 80 ? '#d1fae5' : $pct >= 50 ? '#fef3c7' : '#fee2e2'};
+  color: ${({ $pct }) => $pct >= 80 ? '#065f46' : $pct >= 50 ? '#92400e' : '#991b1b'};
+`;
+const SeatBadge = styled.span`
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: 'Menlo', 'Monaco', monospace;
+  background: #ede9fe;
+  color: #5b21b6;
+  white-space: nowrap;
+`;
+const TheaterBadge = styled.span`
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: 'Menlo', 'Monaco', monospace;
+  background: #e0f2fe;
+  color: #075985;
+  white-space: nowrap;
+`;
+const RawTextPanel = styled.div`
+  background: #0f172a;
+  padding: 10px 14px;
+  border-top: 1px solid ${({ theme }) => theme.colors.border};
+`;
+const RawTextLabel = styled.div`
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+`;
+const RawTextBody = styled.pre`
+  margin: 0;
+  font-size: 11px;
+  font-family: 'Menlo', 'Monaco', monospace;
+  color: #a3e635;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.6;
+  max-height: 280px;
+  overflow-y: auto;
+`;
+const ApproveButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 3px;
+  border: 1px solid #10b981;
+  color: #10b981;
+  background: transparent;
+  &:hover:not(:disabled) { background: #d1fae5; }
+  &:disabled { opacity: 0.4; }
+`;
+const RejectButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 3px;
+  border: 1px solid ${({ theme }) => theme.colors.error};
+  color: ${({ theme }) => theme.colors.error};
+  background: transparent;
+  &:hover:not(:disabled) { background: #fee2e2; }
+  &:disabled { opacity: 0.4; }
 `;
