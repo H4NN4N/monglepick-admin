@@ -1,0 +1,127 @@
+# =========================================
+# 몽글픽 Admin Client 운영 배포 워크플로우 (Production CD)
+# =========================================
+# 트리거:
+#   - main 브랜치 push → 자동 운영 배포
+#   - workflow_dispatch → 수동 재배포
+#
+# 배포 흐름:
+#   1) GitHub Actions 호스팅 러너에서 Vite 빌드 (lint 경고는 비차단)
+#   2) dist/ 를 VM1(210.109.15.187) /home/ubuntu/monglepick-admin/dist/ 로 rsync
+#   3) VM1 네이티브 Nginx reload (/admin 라우팅이 해당 경로를 root 로 가리킴)
+#
+# 사전 세팅:
+#   - VM1 Nginx 에 /admin → /home/ubuntu/monglepick-admin/dist 라우팅 추가 필요
+#   - GitHub Secrets: DEPLOY_SSH_KEY, VM1_HOST, VM_USER, VITE_API_BASE_URL_PROD
+
+name: CD (Production)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cd-prod-admin
+  cancel-in-progress: false
+
+env:
+  REMOTE_DIST_DIR: /home/ubuntu/monglepick-admin/dist
+
+jobs:
+  # ─── 1. 빌드 ───
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        # 기존 React hook 위반 13건 해결 전까지 경고만 표시 (ci-cd.yml 과 동일 정책)
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Build (production)
+        env:
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL_PROD }}
+          VITE_APP_ENV: production
+        run: npm run build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-dist
+          path: dist/
+          retention-days: 7
+
+  # ─── 2. VM1 배포 ───
+  deploy:
+    name: Deploy to VM1
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: admin-dist
+          path: dist/
+
+      - name: Setup SSH (직접 VM1)
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          cat >> ~/.ssh/config <<EOF
+          Host vm1
+            HostName ${{ secrets.VM1_HOST }}
+            User ${{ secrets.VM_USER }}
+            IdentityFile ~/.ssh/id_ed25519
+            StrictHostKeyChecking accept-new
+          EOF
+
+      - name: Rsync dist to VM1
+        run: |
+          ssh vm1 "mkdir -p ${{ env.REMOTE_DIST_DIR }}"
+          rsync -az --delete \
+            -e "ssh" \
+            dist/ \
+            vm1:${{ env.REMOTE_DIST_DIR }}/
+
+      - name: Nginx reload
+        run: |
+          ssh vm1 bash -s <<'EOF'
+          set -euo pipefail
+          if sudo -n nginx -s reload 2>/dev/null; then
+            echo "✅ Nginx reloaded (nginx -s reload)"
+          elif sudo -n systemctl reload nginx 2>/dev/null; then
+            echo "✅ Nginx reloaded (systemctl)"
+          else
+            echo "⚠ sudo reload 실패 — 설정 문법 체크만 수행"
+            sudo nginx -t
+            exit 1
+          fi
+          EOF
+
+      - name: Smoke test
+        run: |
+          for i in 1 2 3; do
+            if curl -sf "http://${{ secrets.VM1_HOST }}/health" > /dev/null 2>&1; then
+              echo "✅ Nginx health OK"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "❌ Smoke test 실패"
+          exit 1
