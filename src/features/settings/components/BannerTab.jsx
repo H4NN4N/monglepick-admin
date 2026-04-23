@@ -395,6 +395,9 @@ export default function BannerTab({ aiModal = null }) {
               <CloseButton onClick={() => setModalOpen(false)}>✕</CloseButton>
             </ModalHeader>
 
+            {/* v3 Phase G: AI 프리필 배너 — 신규 등록 모드 + AI 유래 draft 있을 때만 */}
+            {!editTarget && isAiGenerated && aiDraft && <AiPrefillBanner />}
+
             <ModalForm onSubmit={handleFormSubmit}>
               {/* 제목 */}
               <FormRow>
