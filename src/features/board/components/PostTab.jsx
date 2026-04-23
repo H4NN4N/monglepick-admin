@@ -55,6 +55,11 @@ function formatDate(dateStr) {
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** 백엔드 DTO 호환: postId / id 둘 다 허용 */
+function getPostId(post) {
+  return post?.id ?? post?.postId ?? null;
+}
+
 export default function PostTab() {
   /* ── 목록 상태 ── */
   const [posts, setPosts] = useState([]);
@@ -145,9 +150,15 @@ export default function PostTab() {
     if (!form.content.trim()) { alert('내용을 입력해주세요.'); return; }
     if (!form.editReason.trim()) { alert('수정 사유를 입력해주세요.'); return; }
 
+    const postId = getPostId(editTarget);
+    if (postId == null) {
+      alert('수정할 게시글 ID를 찾을 수 없습니다.');
+      return;
+    }
+
     try {
       setFormLoading(true);
-      await updatePost(editTarget.id, form);
+      await updatePost(postId, form);
       closeEditModal();
       loadPosts();
     } catch (err) {
@@ -170,9 +181,14 @@ export default function PostTab() {
   /** 게시글 삭제 실행 */
   async function handleDelete() {
     if (!deleteTarget) return;
+    const postId = getPostId(deleteTarget);
+    if (postId == null) {
+      alert('삭제할 게시글 ID를 찾을 수 없습니다.');
+      return;
+    }
     try {
       setDeleteLoading(true);
-      await deletePost(deleteTarget.id);
+      await deletePost(postId);
       closeDeleteDialog();
       loadPosts();
     } catch (err) {
@@ -251,7 +267,7 @@ export default function PostTab() {
               </tr>
             ) : (
               posts.map((post) => (
-                <Tr key={post.id}>
+                <Tr key={getPostId(post) ?? `${post.userId}-${post.createdAt}`}>
                   {/* 제목 */}
                   <Td>
                     <TitleText>{post.title ?? '-'}</TitleText>

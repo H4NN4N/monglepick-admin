@@ -2,7 +2,7 @@
  * 리뷰 관리 탭 컴포넌트.
  *
  * 기능:
- * - 리뷰 목록 테이블 (영화ID, 작성자ID, 평점, 내용 미리보기, 카테고리, 스포일러, 블라인드, 좋아요, 작성일, 액션)
+ * - 리뷰 목록 테이블 (영화ID, 작성자ID, 평점, 내용 미리보기, 카테고리, 스포일러, 블라인드, 삭제 여부, 좋아요, 작성일, 액션)
  * - 상단: 영화 제목 검색(MovieSearchPicker) + minRating select + categoryCode select + 새로고침
  * - 카테고리 필터로 도장깨기 인증 리뷰 모니터링 가능 (categoryCode='COURSE')
  * - 삭제 확인 다이얼로그 + 페이지네이션
@@ -77,6 +77,11 @@ function ratingToStars(rating) {
   return '★'.repeat(Math.max(0, Math.min(5, n))) + '☆'.repeat(Math.max(0, 5 - Math.min(5, n)));
 }
 
+/** 백엔드 DTO 호환: reviewId / id 둘 다 허용 */
+function getReviewId(review) {
+  return review?.id ?? review?.reviewId ?? null;
+}
+
 export default function ReviewTab() {
   /* ── 목록 상태 ── */
   const [reviews, setReviews] = useState([]);
@@ -149,6 +154,10 @@ export default function ReviewTab() {
 
   /** 삭제 다이얼로그 열기 */
   function openDeleteDialog(review) {
+    if (review?.isDeleted) {
+      alert('이미 삭제된 리뷰입니다.');
+      return;
+    }
     setDeleteTarget(review);
   }
 
@@ -160,9 +169,19 @@ export default function ReviewTab() {
   /** 리뷰 삭제 실행 */
   async function handleDelete() {
     if (!deleteTarget) return;
+    if (deleteTarget.isDeleted) {
+      alert('이미 삭제된 리뷰입니다.');
+      closeDeleteDialog();
+      return;
+    }
+    const reviewId = getReviewId(deleteTarget);
+    if (reviewId == null) {
+      alert('삭제할 리뷰 ID를 찾을 수 없습니다.');
+      return;
+    }
     try {
       setDeleteLoading(true);
-      await deleteReview(deleteTarget.id);
+      await deleteReview(reviewId);
       closeDeleteDialog();
       loadReviews();
     } catch (err) {
@@ -228,27 +247,31 @@ export default function ReviewTab() {
               <Th $w="100px">카테고리</Th>
               <Th $w="70px">스포일러</Th>
               <Th $w="80px">블라인드</Th>
+              <Th $w="80px">삭제됨</Th>
               <Th $w="70px">좋아요</Th>
               <Th $w="140px">작성일</Th>
-              <Th $w="70px">액션</Th>
+              <Th $w="90px">액션</Th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={10}>
+                <td colSpan={11}>
                   <CenterCell>불러오는 중...</CenterCell>
                 </td>
               </tr>
             ) : reviews.length === 0 ? (
               <tr>
-                <td colSpan={10}>
+                <td colSpan={11}>
                   <CenterCell>리뷰가 없습니다.</CenterCell>
                 </td>
               </tr>
             ) : (
               reviews.map((review) => (
-                <Tr key={review.id}>
+                <Tr
+                  key={getReviewId(review) ?? `${review.movieId}-${review.createdAt}`}
+                  $deleted={review.isDeleted}
+                >
                   {/* 영화 ID */}
                   <Td>
                     <MutedText>{review.movieId ?? '-'}</MutedText>
@@ -294,6 +317,13 @@ export default function ReviewTab() {
                       label={review.isBlinded ? '블라인드' : '정상'}
                     />
                   </Td>
+                  {/* 삭제 여부 */}
+                  <Td>
+                    <StatusBadge
+                      status={review.isDeleted ? 'error' : 'default'}
+                      label={review.isDeleted ? '삭제됨' : '정상'}
+                    />
+                  </Td>
                   {/* 좋아요 수 */}
                   <Td>
                     <MutedText>{(review.likeCount ?? 0).toLocaleString()}</MutedText>
@@ -304,8 +334,12 @@ export default function ReviewTab() {
                   </Td>
                   {/* 삭제 버튼 */}
                   <Td>
-                    <DangerButton onClick={() => openDeleteDialog(review)}>
-                      <MdDelete size={13} /> 삭제
+                    <DangerButton
+                      onClick={() => openDeleteDialog(review)}
+                      $deleted={review.isDeleted}
+                      title={review.isDeleted ? '이미 삭제된 리뷰입니다.' : '리뷰 삭제'}
+                    >
+                      <MdDelete size={13} /> {review.isDeleted ? '삭제됨' : '삭제'}
                     </DangerButton>
                   </Td>
                 </Tr>
@@ -455,6 +489,7 @@ const Th = styled.th`
 
 const Tr = styled.tr`
   border-bottom: 1px solid ${({ theme }) => theme.colors.borderLight};
+  opacity: ${({ $deleted }) => ($deleted ? 0.72 : 1)};
   &:last-child { border-bottom: none; }
   &:hover { background: ${({ theme }) => theme.colors.bgHover}; }
 `;
@@ -527,11 +562,15 @@ const DangerButton = styled.button`
   font-size: ${({ theme }) => theme.fontSizes.xs};
   border: 1px solid ${({ theme }) => theme.colors.border};
   border-radius: 3px;
-  color: ${({ theme }) => theme.colors.textSecondary};
+  color: ${({ $deleted, theme }) =>
+    $deleted ? theme.colors.textMuted : theme.colors.textSecondary};
+  cursor: pointer;
   transition: all ${({ theme }) => theme.transitions.fast};
   &:hover {
-    border-color: ${({ theme }) => theme.colors.error};
-    color: ${({ theme }) => theme.colors.error};
+    border-color: ${({ $deleted, theme }) =>
+      $deleted ? theme.colors.border : theme.colors.error};
+    color: ${({ $deleted, theme }) =>
+      $deleted ? theme.colors.textMuted : theme.colors.error};
   }
 `;
 
