@@ -15,6 +15,42 @@ import { backendApi } from '@/shared/api/axiosInstance';
 /** 관리자 API 기본 경로 */
 const ADMIN = '/api/v1/admin';
 
+/**
+ * 관리자 게시글 응답을 화면 공통 형태로 정규화한다.
+ *
+ * 백엔드 Admin DTO는 postId / reviewId 처럼 도메인별 PK 이름을 그대로 사용한다.
+ * 게시판 관리 화면은 공통적으로 item.id 를 사용하므로 여기서 alias 를 맞춘다.
+ */
+function normalizePost(post) {
+  if (!post) return null;
+  return {
+    ...post,
+    id: post.postId ?? post.id,
+  };
+}
+
+/** 관리자 리뷰 응답을 화면 공통 형태로 정규화한다. */
+function normalizeReview(review) {
+  if (!review) return null;
+  return {
+    ...review,
+    id: review.reviewId ?? review.id,
+  };
+}
+
+/**
+ * 경로 파라미터로 쓰일 관리자 리소스 ID를 검증한다.
+ *
+ * UI 매핑이 어긋나 `undefined`가 그대로 URL에 들어가면
+ * 백엔드에서 Long 변환 예외가 발생하므로 호출 전에 차단한다.
+ */
+function requireAdminResourceId(id, label) {
+  if (id === null || id === undefined || id === '' || id === 'undefined') {
+    throw new Error(`${label} ID를 찾을 수 없습니다.`);
+  }
+  return id;
+}
+
 /* ── 신고 관리 ── */
 
 /**
@@ -38,7 +74,8 @@ export function fetchReports(params) {
  * @returns {Promise<Object>} 처리 결과
  */
 export function processReport(id, data) {
-  return backendApi.put(`${ADMIN}/reports/${id}/action`, data);
+  const reportId = requireAdminResourceId(id, '신고');
+  return backendApi.put(`${ADMIN}/reports/${reportId}/action`, data);
 }
 
 /* ── 혐오표현(독성) 로그 ── */
@@ -64,7 +101,8 @@ export function fetchToxicityLogs(params) {
  * @returns {Promise<Object>} 처리 결과
  */
 export function processToxicity(id, data) {
-  return backendApi.put(`${ADMIN}/toxicity/${id}/action`, data);
+  const toxicityLogId = requireAdminResourceId(id, '독성 로그');
+  return backendApi.put(`${ADMIN}/toxicity/${toxicityLogId}/action`, data);
 }
 
 /* ── 게시글 관리 ── */
@@ -80,7 +118,10 @@ export function processToxicity(id, data) {
  * @returns {Promise<Object>} 페이징된 게시글 목록
  */
 export function fetchPosts(params) {
-  return backendApi.get(`${ADMIN}/posts`, { params });
+  return backendApi.get(`${ADMIN}/posts`, { params }).then((result) => ({
+    ...result,
+    content: (result?.content ?? []).map(normalizePost),
+  }));
 }
 
 /**
@@ -94,7 +135,8 @@ export function fetchPosts(params) {
  * @returns {Promise<Object>} 수정된 게시글 정보
  */
 export function updatePost(id, data) {
-  return backendApi.put(`${ADMIN}/posts/${id}`, data);
+  const postId = requireAdminResourceId(id, '게시글');
+  return backendApi.put(`${ADMIN}/posts/${postId}`, data);
 }
 
 /**
@@ -103,7 +145,8 @@ export function updatePost(id, data) {
  * @returns {Promise<void>}
  */
 export function deletePost(id) {
-  return backendApi.delete(`${ADMIN}/posts/${id}`);
+  const postId = requireAdminResourceId(id, '게시글');
+  return backendApi.delete(`${ADMIN}/posts/${postId}`);
 }
 
 /* ── 리뷰 관리 ── */
@@ -124,7 +167,10 @@ export function deletePost(id) {
  * @returns {Promise<Object>} 페이징된 리뷰 목록
  */
 export function fetchReviews(params) {
-  return backendApi.get(`${ADMIN}/reviews`, { params });
+  return backendApi.get(`${ADMIN}/reviews`, { params }).then((result) => ({
+    ...result,
+    content: (result?.content ?? []).map(normalizeReview),
+  }));
 }
 
 /**
@@ -133,5 +179,6 @@ export function fetchReviews(params) {
  * @returns {Promise<void>}
  */
 export function deleteReview(id) {
-  return backendApi.delete(`${ADMIN}/reviews/${id}`);
+  const reviewId = requireAdminResourceId(id, '리뷰');
+  return backendApi.delete(`${ADMIN}/reviews/${reviewId}`);
 }

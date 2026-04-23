@@ -118,19 +118,27 @@ export const AI_ADMIN_ENDPOINTS = {
 //   OVERVIEW     → /admin/data/overview     (5DB 건수 카드)
 //   DISTRIBUTION → /admin/data/distribution (소스별 분포)
 //   QUALITY      → /admin/data/quality      (NULL 비율 등 품질)
+//
+// 2026-04-15: 파이프라인 계약 정렬.
+//   Agent admin_data.py 는 job-id 기반이라 프론트가 가정했던 `status` / `checkpoint` /
+//   `log/stream` 엔드포인트가 아예 없었다. 실제 라우트와 맞추고, UI 가 쓰던 polling·SSE
+//   구독은 이후 Pipeline 컴포넌트 리팩토링에서 job-id 기반으로 대체한다.
+//   - PIPELINE_LOG   : /pipeline/log/stream → /pipeline/logs (Query: job_id)
+//   - PIPELINE_STATUS: /pipeline/status 미존재 → /pipeline (작업 목록) 로 대체
+//                      (UI 는 "실행 가능 작업" 목록만 보여주고 상태는 /history 에서 유추)
+//   - PIPELINE_CHECKPOINT: 제거 (Agent 미제공 — Pipeline 컴포넌트에서도 호출 제거)
+//   - MOVIE_DB_STATUS: 제거 (Agent 미제공 — Movie 상세에서 호출 제거, 상세 자체는 /movies/{id})
 export const DATA_ADMIN_ENDPOINTS = {
   OVERVIEW: `${ADMIN}/data/overview`,
   DISTRIBUTION: `${ADMIN}/data/distribution`,
   QUALITY: `${ADMIN}/data/quality`,
   MOVIES: `${ADMIN}/movies`,
   MOVIE_DETAIL: (id) => `${ADMIN}/movies/${id}`,
-  MOVIE_DB_STATUS: (id) => `${ADMIN}/movies/${id}/db-status`,
+  PIPELINE_TASKS: `${ADMIN}/pipeline`,          // 작업 목록(9건)
   PIPELINE_RUN: `${ADMIN}/pipeline/run`,
-  PIPELINE_STATUS: `${ADMIN}/pipeline/status`,
-  // 2026-04-15: Agent admin_data.py 는 SSE 경로가 `/pipeline/logs` 이다 (기존 `/pipeline/log/stream` 은 404).
-  PIPELINE_LOG: `${ADMIN}/pipeline/logs`,
+  PIPELINE_LOGS: `${ADMIN}/pipeline/logs`,      // SSE, Query param: job_id
   PIPELINE_CANCEL: `${ADMIN}/pipeline/cancel`,
   PIPELINE_HISTORY: `${ADMIN}/pipeline/history`,
-  PIPELINE_CHECKPOINT: `${ADMIN}/pipeline/checkpoint`,
+  PIPELINE_STATS: `${ADMIN}/pipeline/stats`,
   PIPELINE_RETRY: `${ADMIN}/pipeline/retry-failed`,
 };
