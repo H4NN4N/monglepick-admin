@@ -44,3 +44,15 @@ export function updateOcrEventStatus(eventId, targetStatus) {
 export function deleteOcrEvent(eventId) {
   return backendApi.delete(`${BASE}/${eventId}`);
 }
+
+/* ── 인증 제출 목록 ── */
+
+/** 이벤트별 인증 목록 (페이징 + 상태 필터) */
+export function fetchOcrVerifications(eventId, params = {}) {
+  return backendApi.get(`${BASE}/${eventId}/verifications`, { params });
+}
+
+/** 인증 승인 또는 반려 */
+export function reviewOcrVerification(verificationId, action) {
+  return backendApi.patch(`${BASE}/verifications/${verificationId}/review`, { action });
+}
