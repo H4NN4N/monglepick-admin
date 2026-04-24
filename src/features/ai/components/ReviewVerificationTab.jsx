@@ -145,7 +145,6 @@ export default function ReviewVerificationTab() {
       setRows(result?.content ?? []);
       setTotalPages(result?.page?.totalPages ?? result?.totalPages ?? 0);
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.error('[ReviewVerificationTab] 목록 조회 실패', err);
       setError(err?.message || '목록 조회 중 오류가 발생했습니다.');
     } finally {
@@ -160,7 +159,6 @@ export default function ReviewVerificationTab() {
       setOverview(result);
     } catch (err) {
       // KPI 실패는 목록 표시를 막지 않는다 — 조용히 무시 + 콘솔 경고
-      // eslint-disable-next-line no-console
       console.warn('[ReviewVerificationTab] KPI 로드 실패', err);
     }
   }, []);
@@ -220,10 +218,15 @@ export default function ReviewVerificationTab() {
       } else if (kind === 'reject') {
         await rejectReviewVerification(id, { reason: decisionReason });
       } else if (kind === 'reverify') {
+        // FastAPI /verify 엔드포인트는 X-Service-Key 서버 간 인증을 요구하므로
+        // 브라우저에서 직접 호출 불가. Spring Boot 백엔드가 내부적으로 에이전트를
+        // 호출하고 결과를 CourseVerification 에 반영한다.
         const r = await reverifyReviewVerification(id);
-        if (r && r.agentAvailable === false) {
-          alert(r.message || 'AI 에이전트가 아직 구현되지 않았습니다. 상태만 PENDING 으로 복귀했습니다.');
-        }
+        const msg = r?.message
+          || (r?.agentAvailable
+            ? 'AI 에이전트에 재검증을 요청했습니다. 잠시 후 상태를 확인하세요.'
+            : '상태가 PENDING으로 복귀되었습니다. 백엔드가 AI 에이전트 연동을 완료하면 자동 판정됩니다.');
+        alert(msg);
       }
       closeDetail();
       // 액션 후 목록/KPI 재조회 — 사용자 체감 응답성 대비 직접 호출
@@ -242,10 +245,11 @@ export default function ReviewVerificationTab() {
     <Container>
       {/* ── 에이전트 미구현 안내 배너 ── */}
       <AgentBanner>
-        <strong>ℹ AI 리뷰 검증 에이전트 준비 중</strong>
+        <strong>ℹ AI 리뷰 검증 에이전트</strong>
         <span>
-          에이전트가 구현되기 전까지는 수동 승인/반려만 동작합니다. 재검증 버튼은 상태를 PENDING
-          으로 되돌리며 실제 AI 호출은 수행하지 않습니다.
+          재검증 버튼을 누르면 AI 에이전트가 영화 줄거리 ↔ 리뷰 유사도를 분석하여 AUTO_VERIFIED /
+          NEEDS_REVIEW / AUTO_REJECTED 중 하나로 판정합니다. 에이전트 연결 실패 시 PENDING 으로
+          복귀합니다.
         </span>
       </AgentBanner>
 
