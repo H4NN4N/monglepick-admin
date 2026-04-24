@@ -85,13 +85,14 @@ const ROLE_BADGE = {
   USER:  { status: 'default', label: 'USER' },
 };
 
-/** 등급 → StatusBadge 매핑 */
+/** 등급 → StatusBadge 매핑 (gradeCode 기준) */
 const GRADE_BADGE = {
   NORMAL:   { status: 'default', label: 'NORMAL' },
   BRONZE:   { status: 'warning', label: 'BRONZE' },
   SILVER:   { status: 'info',    label: 'SILVER' },
   GOLD:     { status: 'warning', label: 'GOLD' },
   PLATINUM: { status: 'success', label: 'PLATINUM' },
+  DIAMOND:  { status: 'info',    label: 'DIAMOND' },
 };
 
 /**
@@ -490,8 +491,8 @@ export default function UserDetailPanel({
               <StatCard>
                 <StatLabel>등급</StatLabel>
                 <StatusBadge
-                  status={GRADE_BADGE[detail.grade]?.status ?? 'default'}
-                  label={GRADE_BADGE[detail.grade]?.label ?? (detail.grade ?? '-')}
+                  status={GRADE_BADGE[detail.gradeCode]?.status ?? 'default'}
+                  label={detail.gradeName ?? GRADE_BADGE[detail.gradeCode]?.label ?? (detail.gradeCode ?? '-')}
                 />
               </StatCard>
             </StatRow>
@@ -787,15 +788,15 @@ export default function UserDetailPanel({
                       {activeTab === 'points' && (
                         <>
                           <TabItemLeft>
-                            <TabItemType>{item.type ?? item.changeType ?? '-'}</TabItemType>
+                            <TabItemType>{item.pointType ?? item.type ?? item.changeType ?? '-'}</TabItemType>
                             <TabItemDesc>{item.description ?? item.reason ?? '-'}</TabItemDesc>
                           </TabItemLeft>
                           <TabItemRight>
                             <TabItemAmount
-                              $positive={(item.amount ?? item.changeAmount ?? 0) > 0}
+                              $positive={(item.pointChange ?? item.amount ?? item.changeAmount ?? 0) > 0}
                             >
-                              {(item.amount ?? item.changeAmount ?? 0) > 0 ? '+' : ''}
-                              {(item.amount ?? item.changeAmount ?? 0).toLocaleString()}P
+                              {(item.pointChange ?? item.amount ?? item.changeAmount ?? 0) > 0 ? '+' : ''}
+                              {(item.pointChange ?? item.amount ?? item.changeAmount ?? 0).toLocaleString()}P
                             </TabItemAmount>
                             <TabItemDate>{formatDate(item.createdAt)}</TabItemDate>
                           </TabItemRight>
