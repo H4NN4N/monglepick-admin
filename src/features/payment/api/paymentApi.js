@@ -52,6 +52,23 @@ export function refundOrder(orderId, data) {
 }
 
 /**
+ * PG(Toss) 재조회 동기화 — 2026-04-24 추가.
+ *
+ * Toss 콘솔에서 직접 취소했거나 웹훅이 유실되어 DB 는 COMPLETED 인데 PG 는 CANCELED 인
+ * 주문의 DB 상태를 PG 에 맞춰 동기화한다. 일반 {@link refundOrder} 가 cancelPayment 재호출로
+ * ALREADY_CANCELED 500 에러를 유발하는 문제를 근본적으로 회피한다.
+ *
+ * 동작: Toss getPayment (read-only) 만 호출 → DB/PG 상태 비교 → 불일치 시 포인트 회수 +
+ * DB REFUNDED 마킹. cancelPayment 는 절대 호출하지 않는다.
+ *
+ * @param {string} orderId - 동기화할 주문 UUID
+ * @returns {Promise<{result: 'SYNCED'|'NO_CHANGE'|'MISMATCH', dbStatus: string, pgStatus: string, pointsRecovered: number, message: string}>}
+ */
+export function syncOrderFromPg(orderId) {
+  return backendApi.post(PAYMENT_ADMIN_ENDPOINTS.SYNC_FROM_PG(orderId));
+}
+
+/**
  * 보상 실패 주문 목록 조회.
  *
  * Toss Payments 콜백 실패 또는 포인트/구독 지급 실패로 `COMPENSATION_FAILED`

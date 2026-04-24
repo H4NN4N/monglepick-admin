@@ -50,6 +50,16 @@ export const PAYMENT_ADMIN_ENDPOINTS = {
   ORDERS: `${ADMIN}/payment/orders`,
   ORDER_DETAIL: (orderId) => `${ADMIN}/payment/orders/${orderId}`,
   REFUND: (orderId) => `${ADMIN}/payment/orders/${orderId}/refund`,
+  /**
+   * PG(Toss) 재조회 동기화 — POST, body 없음.
+   *
+   * Toss 콘솔에서 직접 취소하거나 웹훅이 유실되어 DB 상태와 PG 상태가 어긋난 주문을
+   * 복구하기 위한 엔드포인트. Toss getPayment 만 호출하고 cancelPayment 는 호출하지 않으므로
+   * 일반 REFUND 와 달리 ALREADY_CANCELED 500 에러가 나지 않는다.
+   * 응답: {result: SYNCED|NO_CHANGE|MISMATCH, dbStatus, pgStatus, pointsRecovered, message}
+   * 2026-04-24 추가.
+   */
+  SYNC_FROM_PG: (orderId) => `${ADMIN}/payment/orders/${orderId}/sync-from-pg`,
   /** 보상 복구 — POST, body={adminNote} */
   COMPENSATE: (orderId) => `${ADMIN}/subscription/${orderId}/compensate`,
   SUBSCRIPTIONS: `${ADMIN}/subscription`,

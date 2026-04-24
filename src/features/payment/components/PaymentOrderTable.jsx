@@ -21,11 +21,12 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import styled from 'styled-components';
-import { MdRefresh, MdErrorOutline, MdBuild, MdClose } from 'react-icons/md';
+import { MdRefresh, MdErrorOutline, MdBuild, MdClose, MdSync } from 'react-icons/md';
 import {
   fetchPaymentOrders,
   fetchFailedOrders,
   compensateOrder,
+  syncOrderFromPg,
 } from '../api/paymentApi';
 import StatusBadge from '@/shared/components/StatusBadge';
 import ConfirmModal from '@/shared/components/ConfirmModal';
@@ -121,6 +122,13 @@ export default function PaymentOrderTable({
   /* 환불 모달 상태 */
   const [refundTarget, setRefundTarget] = useState(null);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
+
+  /* PG 재조회 동기화 모달 상태 (2026-04-24 추가).
+   * Toss 콘솔에서 직접 취소하거나 웹훅이 유실되어 DB 가 COMPLETED 로 남은 주문을,
+   * cancelPayment 재호출 없이 getPayment 기반으로만 DB 에 동기화한다. */
+  const [syncTarget, setSyncTarget] = useState(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncError, setSyncError] = useState(null);
 
   /**
    * datetime-local 입력값(예: "2026-04-01T14:30")을 Backend 가 받는
@@ -308,6 +316,53 @@ export default function PaymentOrderTable({
   /** 환불 성공 후 목록 갱신 */
   function handleRefundSuccess() {
     loadOrders();
+  }
+
+  /**
+   * PG(Toss) 재조회 동기화 모달 열기.
+   *
+   * Toss 콘솔 직접 취소나 웹훅 유실로 DB 상태가 PG 와 어긋났을 때 사용한다.
+   * 일반 환불 버튼은 cancelPayment 를 재호출해 ALREADY_CANCELED 500 을 유발하지만,
+   * 이 기능은 getPayment(read-only) 만 호출하므로 안전하다.
+   */
+  function openSyncFromPg(order) {
+    setSyncError(null);
+    setSyncTarget(order);
+  }
+
+  /** PG 재조회 동기화 실행 — 결과는 resultAlert 모달로 안내 */
+  async function runSyncFromPg() {
+    if (!syncTarget) return;
+    setSyncLoading(true);
+    setSyncError(null);
+    try {
+      const res = await syncOrderFromPg(syncTarget.orderId);
+      setSyncTarget(null);
+      /* 결과 타입(result)별 시각적 구분:
+       *  - SYNCED    → 성공 (DB 가 PG 에 맞춰 갱신됨)
+       *  - NO_CHANGE → DB/PG 이미 일치 (변경 없음)
+       *  - MISMATCH  → 자동 동기화 규칙 외 (수동 검토 필요) */
+      const titleByResult = {
+        SYNCED:    'PG 재조회 — 동기화 완료',
+        NO_CHANGE: 'PG 재조회 — 이미 일치',
+        MISMATCH:  'PG 재조회 — 수동 검토 필요',
+      };
+      setResultAlert({
+        title: titleByResult[res?.result] ?? 'PG 재조회 결과',
+        description:
+          (res?.message ?? '') +
+          `\n\nDB 상태: ${res?.dbStatus ?? '-'}\nPG 상태: ${res?.pgStatus ?? '-'}` +
+          (res?.pointsRecovered > 0 ? `\n회수 포인트: ${res.pointsRecovered.toLocaleString()}P` : ''),
+      });
+      /* SYNCED 인 경우에만 목록 갱신 — NO_CHANGE/MISMATCH 는 DB 변경이 없으므로 재조회 불필요 */
+      if (res?.result === 'SYNCED') {
+        loadOrders();
+      }
+    } catch (err) {
+      setSyncError(err?.message ?? 'PG 재조회 중 오류 발생');
+    } finally {
+      setSyncLoading(false);
+    }
   }
 
   /** 개별 보상 모달 열기 */
@@ -581,14 +636,31 @@ export default function PaymentOrderTable({
                       </Td>
                       <Td mono>{formatDate(order.createdAt)}</Td>
                       <Td>
-                        {canRefund && (
-                          <ActionButton
-                            $variant="danger"
-                            onClick={() => openRefund(order)}
-                          >
-                            환불
-                          </ActionButton>
-                        )}
+                        <RowActions>
+                          {canRefund && (
+                            <ActionButton
+                              $variant="danger"
+                              onClick={() => openRefund(order)}
+                            >
+                              환불
+                            </ActionButton>
+                          )}
+                          {/*
+                            PG 재조회 버튼 (2026-04-24 추가).
+                            Toss 콘솔 직접 취소 / 웹훅 유실 대응용.
+                            COMPLETED 상태에서만 의미가 있으므로 canRefund 와 동일한 조건으로 노출.
+                          */}
+                          {canRefund && (
+                            <ActionButton
+                              $variant="info"
+                              onClick={() => openSyncFromPg(order)}
+                              title="Toss 결제 상태를 재조회하여 DB 를 PG 에 맞춰 동기화합니다 (Toss 재취소 호출 없음)."
+                            >
+                              <MdSync size={12} />
+                              PG 재조회
+                            </ActionButton>
+                          )}
+                        </RowActions>
                       </Td>
                     </tr>
                   );
@@ -652,6 +724,30 @@ export default function PaymentOrderTable({
         onConfirm={runCompensate}
         onClose={() => {
           if (!compensateLoading) setCompensateTarget(null);
+        }}
+      />
+
+      {/* PG(Toss) 재조회 동기화 모달 (2026-04-24 추가) */}
+      <ConfirmModal
+        isOpen={!!syncTarget}
+        title="PG(Toss) 재조회 동기화"
+        description={
+          syncTarget
+            ? `주문 ${syncTarget.orderId} 의 Toss 결제 상태를 재조회하여 DB 와 동기화합니다.\n\n` +
+              `• Toss getPayment(read-only) 만 호출합니다 — 취소 API 재호출 없음\n` +
+              `• Toss 가 이미 CANCELED 이면 DB 를 REFUNDED 로 변경 + POINT_PACK 포인트 회수\n` +
+              `• Toss/DB 이미 일치 시 변경 없음 (NO_CHANGE)\n` +
+              `• 자동 동기화 규칙 외(PG DONE · DB REFUNDED 등)는 MISMATCH 로 보고`
+            : null
+        }
+        confirmText="재조회 실행"
+        cancelText="취소"
+        variant="primary"
+        loading={syncLoading}
+        error={syncError}
+        onConfirm={runSyncFromPg}
+        onClose={() => {
+          if (!syncLoading) setSyncTarget(null);
         }}
       />
 
@@ -950,7 +1046,21 @@ const UserSub = styled.span`
   text-overflow: ellipsis;
 `;
 
+/**
+ * 행 단위 액션 버튼 컨테이너 — "환불" + "PG 재조회" 등 복수 버튼이 줄바꿈 없이 나란히 배치되도록 감싼다.
+ * 좁은 화면에서도 버튼이 잘리지 않게 nowrap 유지 + gap 으로 간격 분리.
+ */
+const RowActions = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.xs};
+  flex-wrap: nowrap;
+`;
+
 const ActionButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 3px ${({ theme }) => theme.spacing.md};
   border-radius: 4px;
   font-size: ${({ theme }) => theme.fontSizes.xs};
@@ -958,10 +1068,18 @@ const ActionButton = styled.button`
   transition: opacity ${({ theme }) => theme.transitions.fast};
   white-space: nowrap;
 
-  ${({ $variant, theme }) =>
-    $variant === 'danger'
-      ? `color: ${theme.colors.error}; border: 1px solid ${theme.colors.error}; background: ${theme.colors.errorBg};`
-      : `color: ${theme.colors.warning ?? '#92400e'}; border: 1px solid ${theme.colors.warning ?? '#f59e0b'}; background: ${theme.colors.warningBg};`}
+  ${({ $variant, theme }) => {
+    if ($variant === 'danger') {
+      /* 환불: 금전 이동 — 강조 위험 스타일 */
+      return `color: ${theme.colors.error}; border: 1px solid ${theme.colors.error}; background: ${theme.colors.errorBg};`;
+    }
+    if ($variant === 'info') {
+      /* PG 재조회: 진단/동기화 — 안전한 조회 성격의 중립 스타일 (primary 계열) */
+      return `color: ${theme.colors.primary}; border: 1px solid ${theme.colors.primary}; background: ${theme.colors.primaryLight ?? '#eff6ff'};`;
+    }
+    /* 기본(수동 보상): warning 스타일 */
+    return `color: ${theme.colors.warning ?? '#92400e'}; border: 1px solid ${theme.colors.warning ?? '#f59e0b'}; background: ${theme.colors.warningBg};`;
+  }}
 
   &:hover:not(:disabled) { opacity: 0.75; }
   &:disabled { opacity: 0.4; cursor: not-allowed; }

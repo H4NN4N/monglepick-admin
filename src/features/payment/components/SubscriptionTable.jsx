@@ -442,7 +442,7 @@ export default function SubscriptionTable({ aiSubscriptionRequest = null }) {
                     key={sub.subscriptionId}
                     $highlight={aiHighlightId === sub.subscriptionId}
                   >
-                    <Td mono>{sub.subscriptionId ?? '-'}</Td>
+                    <Td $mono>{sub.subscriptionId ?? '-'}</Td>
                     <Td>
                       {/* 닉네임/이메일 우선 — UUID 는 보조 표시 */}
                       <UserCell>
@@ -460,7 +460,7 @@ export default function SubscriptionTable({ aiSubscriptionRequest = null }) {
                     <Td>
                       <StatusBadge status={badge.status} label={badge.label} />
                     </Td>
-                    <Td mono>{formatDate(sub.startedAt)}</Td>
+                    <Td $mono>{formatDate(sub.startedAt)}</Td>
                     <Td>
                       <DateCell>
                         <span>{formatDate(sub.expiresAt)}</span>
@@ -752,13 +752,29 @@ const Td = styled.td`
   padding: ${({ theme }) => theme.spacing.md} ${({ theme }) => theme.spacing.lg};
   font-size: ${({ theme }) => theme.fontSizes.sm};
   color: ${({ theme }) => theme.colors.textPrimary};
-  font-family: ${({ mono, theme }) => mono ? theme.fonts.mono : 'inherit'};
+  font-family: ${({ $mono, theme }) => $mono ? theme.fonts.mono : 'inherit'};
   border-bottom: 1px solid ${({ theme }) => theme.colors.borderLight};
   white-space: nowrap;
 
   tr:last-child & {
     border-bottom: none;
   }
+`;
+
+/**
+ * AI 어시스턴트 하이라이트용 tr.
+ * $highlight=true 인 행에 primary 색 좌측 보더 + 옅은 배경을 적용해
+ * navigate(?subscriptionId=...) 로 진입한 대상 행을 시각적으로 구분한다.
+ */
+const HighlightTr = styled.tr`
+  ${({ $highlight, theme }) =>
+    $highlight
+      ? `
+        background: ${theme.colors.primaryBg};
+        box-shadow: inset 3px 0 0 ${theme.colors.primary};
+      `
+      : ''}
+  transition: background ${({ theme }) => theme.transitions.fast};
 `;
 
 /** 사용자 셀 — 닉네임/이메일 우선, userId 보조 */
