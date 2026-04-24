@@ -17,6 +17,9 @@ export default function ChatInput({
   isStreaming = false,
   disabled = false,
   placeholder = '예) 지난 7일 DAU 추이 보여줘',
+  // 2026-04-24: 빈 상태에서 EmptyState 내부에 임베드될 때 border-top 과 배경을
+  // 투명화해 칩과 어울리는 카드 형태가 되도록 한다. 하단 고정일 때는 기존 스타일 유지.
+  embedded = false,
 }) {
   const [value, setValue] = useState('');
 
@@ -35,7 +38,7 @@ export default function ChatInput({
   };
 
   return (
-    <InputBar>
+    <InputBar $embedded={embedded}>
       <StyledTextarea
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -74,8 +77,24 @@ const InputBar = styled.div`
   gap: ${({ theme }) => theme.spacing.sm};
   align-items: stretch;
   padding: ${({ theme }) => theme.spacing.md};
-  border-top: 1px solid ${({ theme }) => theme.colors.border};
-  background: ${({ theme }) => theme.colors.bgMain};
+  /* 하단 고정 모드에서는 border-top + bgMain 유지.
+     embedded(빈 상태 EmptyState 내부) 모드에서는 카드 형태(라운드 박스)로 전환해
+     칩과 동일한 시각 톤으로 맞춘다. */
+  ${({ $embedded, theme }) =>
+    $embedded
+      ? `
+        border: 1px solid ${theme.colors.border};
+        border-radius: 12px;
+        background: ${theme.colors.bgMain};
+        width: 100%;
+        max-width: 720px;
+        margin: 0 auto;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+      `
+      : `
+        border-top: 1px solid ${theme.colors.border};
+        background: ${theme.colors.bgMain};
+      `}
 `;
 
 const StyledTextarea = styled.textarea`

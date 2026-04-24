@@ -92,6 +92,23 @@ export default function AssistantChatPanel({
                 </Chip>
               ))}
             </ChipRow>
+            {/* 2026-04-24: 빈 상태에서는 입력창을 하단 고정 대신 칩 아래 중앙에 임베드.
+                ChatGPT/Claude 스타일로 "첫 질문을 시작하기 쉽게" 시각적 초점을 중앙으로 모은다.
+                embedded prop 으로 ChatInput 의 border/배경을 카드 형태로 전환. */}
+            <EmbeddedInputWrap>
+              <ChatInput
+                onSubmit={onSubmit}
+                onCancel={onCancel}
+                isStreaming={isStreaming}
+                disabled={isAwaitingConfirmation}
+                placeholder={
+                  isAwaitingConfirmation
+                    ? '관리자 승인을 기다리고 있어요. 위 모달에서 결정해주세요.'
+                    : undefined
+                }
+                embedded
+              />
+            </EmbeddedInputWrap>
           </EmptyState>
         ) : (
           <MessageList>
@@ -124,18 +141,22 @@ export default function AssistantChatPanel({
         <ErrorBanner>⚠️ {lastError}</ErrorBanner>
       )}
 
-      {/* 입력창 — 승인 대기 중에는 disabled */}
-      <ChatInput
-        onSubmit={onSubmit}
-        onCancel={onCancel}
-        isStreaming={isStreaming}
-        disabled={isAwaitingConfirmation}
-        placeholder={
-          isAwaitingConfirmation
-            ? '관리자 승인을 기다리고 있어요. 위 모달에서 결정해주세요.'
-            : undefined
-        }
-      />
+      {/* 입력창 — 승인 대기 중에는 disabled.
+          2026-04-24: 빈 상태에서는 EmptyState 내부(EmbeddedInputWrap)에 렌더되므로 여기서는 생략.
+          메시지가 한 건이라도 있으면 하단 고정 모드로 복귀한다. */}
+      {!isEmpty && (
+        <ChatInput
+          onSubmit={onSubmit}
+          onCancel={onCancel}
+          isStreaming={isStreaming}
+          disabled={isAwaitingConfirmation}
+          placeholder={
+            isAwaitingConfirmation
+              ? '관리자 승인을 기다리고 있어요. 위 모달에서 결정해주세요.'
+              : undefined
+          }
+        />
+      )}
 
       {/* v3 에서 ConfirmationDialog 미사용 (HITL/risk_gate 제거).
           v3 안정화 후 최종 삭제 예정. 예비 보관.
@@ -255,6 +276,16 @@ const ChipRow = styled.div`
   gap: ${({ theme }) => theme.spacing.sm};
   justify-content: center;
   max-width: 720px;
+`;
+
+/**
+ * 2026-04-24: 빈 상태에서 칩 바로 아래에 입력창을 임베드하는 래퍼.
+ * 칩과 동일한 최대 폭(720px)을 유지해 시각적으로 한 덩어리처럼 보이게 한다.
+ */
+const EmbeddedInputWrap = styled.div`
+  width: 100%;
+  max-width: 720px;
+  margin-top: ${({ theme }) => theme.spacing.md};
 `;
 
 const Chip = styled.button`
