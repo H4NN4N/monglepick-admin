@@ -153,7 +153,7 @@ export default function ChurnRiskTab() {
                     cy="50%"
                     innerRadius={60}
                     outerRadius={100}
-                    label={({ name, value }) => `${value}명`}
+                    label={({ value }) => `${value}명`}
                     labelLine={true}
                   >
                     {riskDistData.map((item, idx) => (

@@ -203,6 +203,16 @@ export default function UserDetailPanel({
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
 
+  /* 상세 로드 완료 후 initialAction 이 있으면 해당 모달 자동 오픈 (AI 어시스턴트 연동) */
+  useEffect(() => {
+    if (detail && initialAction) {
+      setModalMode(initialAction);
+      onInitialActionConsumed?.();
+    }
+  // detail.userId 기준으로 1회만 실행 — initialAction/onInitialActionConsumed 는 렌더마다 변하지 않음
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.userId]);
+
   /**
    * 미니 탭 데이터 로딩.
    * 이미 로드된 탭은 재요청하지 않는다 (lazy 캐싱).

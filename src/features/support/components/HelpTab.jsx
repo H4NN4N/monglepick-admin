@@ -75,7 +75,7 @@ export default function HelpTab() {
    * 모달 초기값(title, category, content)으로 주입한다.
    */
   const { modal: queryModal } = useQueryParams();
-  const { draft, isAiGenerated, bannerText } = useAiPrefill();
+  const { draft, bannerText } = useAiPrefill();
 
   /* ── 목록 상태 ── */
   const [articles, setArticles] = useState([]);

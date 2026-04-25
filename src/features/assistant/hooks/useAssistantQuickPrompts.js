@@ -44,7 +44,7 @@ export default function useAssistantQuickPrompts(limit = 4) {
           // 서버는 `{id, text}` 형태. 본 훅은 칩 텍스트 배열만 필요.
           setPrompts(data.map((s) => s?.text).filter(Boolean));
         }
-      } catch (_) {
+      } catch {
         // 네트워크 오류 시 FALLBACK 유지 — 관리자 초기 체험 UX 유지가 우선.
       }
     };

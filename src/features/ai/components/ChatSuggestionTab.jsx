@@ -120,7 +120,7 @@ export default function ChatSuggestionTab() {
    * tags 필드는 모달 폼에 대응 필드가 없어 무시한다.
    */
   const { modal: queryModal } = useQueryParams();
-  const { draft, isAiGenerated, bannerText } = useAiPrefill();
+  const { draft, bannerText } = useAiPrefill();
 
   /* ── 목록 상태 ── */
   const [rows, setRows] = useState([]);

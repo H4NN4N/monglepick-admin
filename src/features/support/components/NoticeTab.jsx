@@ -100,7 +100,7 @@ export default function NoticeTab() {
    * AI 어시스턴트가 draft 를 location.state 에 심어두면 모달 초기값으로 주입.
    */
   const { modal: queryModal, id: queryId } = useQueryParams();
-  const { draft, isAiGenerated, bannerText } = useAiPrefill();
+  const { draft, bannerText } = useAiPrefill();
 
   /* ── 목록 상태 ── */
   const [notices, setNotices] = useState([]);
