@@ -30,10 +30,7 @@ export default function AssistantChatPanel({
   status,
   currentPhase,
   lastError,
-  confirmation,
   onSubmit,
-  onApprove,
-  onReject,
   onCancel,
   onReset,
 }) {
@@ -48,8 +45,6 @@ export default function AssistantChatPanel({
   const isStreaming = status === 'streaming';
   const isAwaitingConfirmation = status === 'awaiting_confirmation';
   const isEmpty = messages.length === 0;
-  // 입력창은 스트리밍 / 승인 대기 중 모두 잠금
-  const inputLocked = isStreaming || isAwaitingConfirmation;
 
   // 2026-04-23: 빈 상태 칩 동적 조회. `chat_suggestions.surface='admin_assistant'` 풀에서
   // 랜덤 4개. 응답 없으면 훅 내부 FALLBACK_PROMPTS 가 표시된다.
