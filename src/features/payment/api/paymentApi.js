@@ -242,3 +242,25 @@ export function createPointItem(data) {
 export function updatePointItem(id, data) {
   return backendApi.put(PAYMENT_ADMIN_ENDPOINTS.POINT_ITEM_DETAIL(id), data);
 }
+
+/**
+ * 포인트 아이템 이미지 업로드 (2026-04-27 신규).
+ *
+ * <p>운영자가 신규 아바타·배지 등록 시 SVG/PNG 등 이미지 파일을 직접 업로드한다.
+ * Backend 가 검증(magic bytes / SVG XSS 패턴 / 5MB 한도) 후 절대 URL 을 반환하며,
+ * 호출 측은 이 URL 을 PointItem 등록·수정 요청의 {@code imageUrl} 필드에 채워 넣는다.</p>
+ *
+ * @param {File}   file   업로드 파일 (input[type=file].files[0])
+ * @param {string} subdir "avatars" | "badges" — 아바타/배지 카테고리에 따라 분기
+ * @returns {Promise<{url: string}>} 업로드된 이미지의 절대 URL
+ */
+export function uploadPointItemImage(file, subdir) {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('subdir', subdir);
+  return backendApi.post(PAYMENT_ADMIN_ENDPOINTS.POINT_ITEM_IMAGE_UPLOAD, form, {
+    /* axios 가 자동으로 multipart boundary 설정 — 명시적 Content-Type 지정하지 않는다.
+     * 일부 axios 인스턴스가 application/json 을 기본 헤더로 강제하면 이 옵션이 명시적 override. */
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+}

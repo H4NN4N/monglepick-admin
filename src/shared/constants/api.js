@@ -73,6 +73,8 @@ export const PAYMENT_ADMIN_ENDPOINTS = {
   POINT_HISTORIES: `${ADMIN}/point/histories`,
   POINT_ITEMS: `${ADMIN}/point/items`,
   POINT_ITEM_DETAIL: (id) => `${ADMIN}/point/items/${id}`,
+  /** 포인트 아이템 이미지 업로드 — POST multipart, fields: file, subdir(avatars|badges) */
+  POINT_ITEM_IMAGE_UPLOAD: `${ADMIN}/point/items/images`,
 };
 
 /* ── 고객센터 관리 (윤형주) ──
