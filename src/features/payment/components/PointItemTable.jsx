@@ -21,40 +21,81 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
-import { MdRefresh, MdEdit, MdCheck, MdClose, MdAdd } from 'react-icons/md';
+import { MdRefresh, MdEdit, MdCheck, MdClose, MdAdd, MdImageNotSupported } from 'react-icons/md';
 import { fetchPointItems, updatePointItem } from '../api/paymentApi';
 import StatusBadge from '@/shared/components/StatusBadge';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import PointItemCreateModal from './PointItemCreateModal';
 
 /**
- * 카테고리 한국어 레이블.
- * 백엔드는 문자열 자유 입력으로 저장하지만, 실제 운영값은 아래와 같이 규약되어 있다.
+ * 카테고리 한국어 레이블 — 2026-04-27 정합화.
+ *
+ * Backend `PointItemCategory` 정규값(소문자 5종) + 레거시값을 모두 포함.
+ * 신규 등록은 `coupon`/`avatar`/`badge`/`apply`/`hint` 만 사용하며,
+ * `subscription_discount`/`profile_item` 등은 PointItemInitializer 가 비활성화 처리한 잔재.
  */
 const CATEGORY_LABEL = {
   general:               '일반',
   coupon:                '쿠폰',
   avatar:                '아바타',
-  ai:                    'AI 이용권',
-  subscription_discount: '구독 할인',
-  extra_quota:           '추가 쿼터',
-  profile_item:          '프로필 아이템',
-  gift:                  '선물',
-  etc:                   '기타',
+  badge:                 '배지',
+  apply:                 '응모권',
+  hint:                  '힌트',
+  ai:                    'AI 이용권 (레거시)',
+  subscription_discount: '구독 할인 (레거시)',
+  extra_quota:           '추가 쿼터 (레거시)',
+  profile_item:          '프로필 아이템 (레거시)',
+  gift:                  '선물 (레거시)',
+  etc:                   '기타 (레거시)',
 };
+
+/**
+ * 인라인 편집용 카테고리 옵션 — 신규 등록 모달의 옵션과 동일.
+ * Backend 정규 5종만 노출하여 레거시 값 신규 입력을 차단한다.
+ */
+const EDITABLE_CATEGORY_OPTIONS = [
+  { value: '',         label: '미지정 (general)' },
+  { value: 'avatar',   label: '아바타' },
+  { value: 'badge',    label: '배지' },
+  { value: 'coupon',   label: '쿠폰' },
+  { value: 'apply',    label: '응모권' },
+  { value: 'hint',     label: '힌트' },
+];
+
+/**
+ * 인라인 편집용 itemType 옵션 — 신규 등록 모달의 옵션과 동일하게 유지하되,
+ * 좁은 인라인 편집 셀에 적합하도록 group label 없이 평탄화.
+ */
+const EDITABLE_ITEM_TYPE_OPTIONS = [
+  { value: '',                   label: '미지정 (교환 차단)' },
+  { value: 'AVATAR_GENERIC',     label: 'AVATAR_GENERIC' },
+  { value: 'BADGE_GENERIC',      label: 'BADGE_GENERIC' },
+  { value: 'AVATAR_MONGLE',      label: 'AVATAR_MONGLE (레거시)' },
+  { value: 'BADGE_PREMIUM',      label: 'BADGE_PREMIUM (레거시)' },
+  { value: 'AI_TOKEN_1',         label: 'AI_TOKEN_1' },
+  { value: 'AI_TOKEN_5',         label: 'AI_TOKEN_5' },
+  { value: 'AI_TOKEN_20',        label: 'AI_TOKEN_20' },
+  { value: 'AI_TOKEN_50',        label: 'AI_TOKEN_50' },
+  { value: 'APPLY_MOVIE_TICKET', label: 'APPLY_MOVIE_TICKET' },
+  { value: 'QUIZ_HINT',          label: 'QUIZ_HINT' },
+];
 
 function displayCategory(category) {
   if (!category) return '-';
   return CATEGORY_LABEL[category] ?? CATEGORY_LABEL[category.toLowerCase()] ?? category;
 }
 
-/** 편집 가능한 필드 초기값 추출 */
+/** 편집 가능한 필드 초기값 추출 — 2026-04-27: itemType/amount/durationDays/imageUrl 포함. */
 function toEditForm(item) {
   return {
     itemName:        item.itemName ?? '',
     itemPrice:       String(item.itemPrice ?? ''),
     itemDescription: item.itemDescription ?? '',
     itemCategory:    item.itemCategory ?? '',
+    itemType:        item.itemType ?? '',
+    amount:          item.amount != null ? String(item.amount) : '',
+    durationDays:    item.durationDays != null ? String(item.durationDays) : '',
+    imageUrl:        item.imageUrl ?? '',
     isActive:        item.isActive ?? true,
   };
 }
@@ -130,6 +171,20 @@ export default function PointItemTable() {
       return;
     }
 
+    /* 선택 필드 검증 — 0 이상 정수 또는 빈값(=NULL) */
+    const amountNum = editForm.amount === '' || editForm.amount == null
+      ? null : Number(editForm.amount);
+    if (amountNum !== null && (!Number.isFinite(amountNum) || !Number.isInteger(amountNum) || amountNum < 0)) {
+      setEditError('지급 수량은 0 이상의 정수여야 합니다.');
+      return;
+    }
+    const durationNum = editForm.durationDays === '' || editForm.durationDays == null
+      ? null : Number(editForm.durationDays);
+    if (durationNum !== null && (!Number.isFinite(durationNum) || !Number.isInteger(durationNum) || durationNum < 0)) {
+      setEditError('유효기간(일)은 0 이상의 정수여야 합니다.');
+      return;
+    }
+
     try {
       setSavingId(itemId);
       setEditError(null);
@@ -138,6 +193,10 @@ export default function PointItemTable() {
         itemPrice:       price,
         itemDescription: editForm.itemDescription.trim(),
         itemCategory:    (editForm.itemCategory ?? '').trim() || 'general',
+        itemType:        (editForm.itemType ?? '').trim() || null,
+        amount:          amountNum,
+        durationDays:    durationNum,
+        imageUrl:        (editForm.imageUrl ?? '').trim() || null,
         isActive:        editForm.isActive,
       };
       const updated = await updatePointItem(itemId, payload);
@@ -169,11 +228,17 @@ export default function PointItemTable() {
     setToggleLoading(true);
     setToggleError(null);
     try {
+      /* 활성/비활성 토글은 isActive 외 모든 필드를 보존해야 한다 — 신규 itemType/amount/...
+       * 필드도 그대로 전달해 운영자가 토글 한 번으로 데이터를 잃지 않도록 한다. */
       const updated = await updatePointItem(itemId, {
         itemName:        toggleTarget.itemName,
         itemPrice:       toggleTarget.itemPrice,
         itemDescription: toggleTarget.itemDescription,
         itemCategory:    toggleTarget.itemCategory ?? 'general',
+        itemType:        toggleTarget.itemType ?? null,
+        amount:          toggleTarget.amount ?? null,
+        durationDays:    toggleTarget.durationDays ?? null,
+        imageUrl:        toggleTarget.imageUrl ?? null,
         isActive:        nextActive,
       });
       setItems((prev) =>
@@ -224,9 +289,12 @@ export default function PointItemTable() {
           <Table>
             <thead>
               <tr>
+                <Th>이미지</Th>
                 <Th>아이템명</Th>
                 <Th>카테고리</Th>
+                <Th>itemType</Th>
                 <Th>가격 (P)</Th>
+                <Th>유효기간</Th>
                 <Th>설명</Th>
                 <Th>활성</Th>
                 <Th>액션</Th>
@@ -240,6 +308,24 @@ export default function PointItemTable() {
                 return isEditing ? (
                   /* ── 편집 행 ── */
                   <EditRow key={item.pointItemId}>
+                    {/* 이미지 — 편집 모드에서는 URL 입력 + 썸네일 미리보기 */}
+                    <Td>
+                      <ThumbColumn>
+                        <Thumbnail
+                          src={editForm.imageUrl?.trim() || item.imageUrl || null}
+                          alt={item.itemName}
+                        />
+                        <EditInput
+                          type="text"
+                          value={editForm.imageUrl}
+                          onChange={(e) => handleEditChange('imageUrl', e.target.value)}
+                          placeholder="/avatars/x.svg"
+                          maxLength={500}
+                          style={{ width: '160px' }}
+                        />
+                      </ThumbColumn>
+                    </Td>
+
                     <Td>
                       <EditInput
                         type="text"
@@ -252,14 +338,25 @@ export default function PointItemTable() {
                     </Td>
 
                     <Td>
-                      <EditInput
-                        type="text"
+                      <EditSelect
                         value={editForm.itemCategory}
                         onChange={(e) => handleEditChange('itemCategory', e.target.value)}
-                        placeholder="general"
-                        maxLength={50}
-                        style={{ width: '140px' }}
-                      />
+                      >
+                        {EDITABLE_CATEGORY_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </EditSelect>
+                    </Td>
+
+                    <Td>
+                      <EditSelect
+                        value={editForm.itemType}
+                        onChange={(e) => handleEditChange('itemType', e.target.value)}
+                      >
+                        {EDITABLE_ITEM_TYPE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </EditSelect>
                     </Td>
 
                     <Td>
@@ -269,7 +366,19 @@ export default function PointItemTable() {
                         value={editForm.itemPrice}
                         onChange={(e) => handleEditChange('itemPrice', e.target.value)}
                         placeholder="0"
-                        style={{ width: '100px' }}
+                        style={{ width: '90px' }}
+                      />
+                    </Td>
+
+                    <Td>
+                      <EditInput
+                        type="number"
+                        min={0}
+                        value={editForm.durationDays}
+                        onChange={(e) => handleEditChange('durationDays', e.target.value)}
+                        placeholder="무기한"
+                        style={{ width: '80px' }}
+                        title="유효기간(일). 비워두면 무기한."
                       />
                     </Td>
 
@@ -280,7 +389,7 @@ export default function PointItemTable() {
                         onChange={(e) => handleEditChange('itemDescription', e.target.value)}
                         placeholder="설명 (선택)"
                         maxLength={500}
-                        style={{ width: '100%', minWidth: '200px' }}
+                        style={{ width: '100%', minWidth: '180px' }}
                       />
                     </Td>
 
@@ -316,10 +425,25 @@ export default function PointItemTable() {
                 ) : (
                   /* ── 일반 행 ── */
                   <tr key={item.pointItemId}>
+                    <Td>
+                      <Thumbnail src={item.imageUrl} alt={item.itemName} />
+                    </Td>
                     <Td bold>{item.itemName ?? '-'}</Td>
                     <Td muted>{displayCategory(item.itemCategory)}</Td>
                     <Td mono>
+                      {item.itemType ? (
+                        <ItemTypeBadge $unsupported={item.itemType === 'UNKNOWN'}>
+                          {item.itemType}
+                        </ItemTypeBadge>
+                      ) : (
+                        <ItemTypeBadge $unsupported>미지정</ItemTypeBadge>
+                      )}
+                    </Td>
+                    <Td mono>
                       {item.itemPrice != null ? `${Number(item.itemPrice).toLocaleString()}P` : '-'}
+                    </Td>
+                    <Td muted>
+                      {item.durationDays != null ? `${item.durationDays}일` : '무기한'}
                     </Td>
                     <Td muted>{item.itemDescription || '-'}</Td>
                     <Td>
@@ -478,7 +602,102 @@ const TableWrapper = styled.div`
 const Table = styled.table`
   width: 100%;
   border-collapse: collapse;
-  min-width: 700px;
+  min-width: 980px;
+`;
+
+/* ── 이미지 썸네일 ────────────────────────────────────────
+ *
+ * 정적 자산은 monglepick-client (5173) 측에서만 호스팅되므로 admin (5174) 에서
+ * 경로 그대로 로드하면 404 가 난다. 동적으로 monglepick-client origin 을 prefix.
+ * 운영 배포 시에는 nginx 가 동일 origin 으로 묶지만 dev 에서는 명시적 prefix 가 안전.
+ *
+ * 외부 URL(http/https) 은 그대로 사용. 운영자는 CDN URL 을 직접 입력 가능.
+ */
+const CLIENT_ASSETS_ORIGIN = (import.meta?.env?.VITE_CLIENT_ASSETS_ORIGIN
+  ?? 'http://localhost:5173').replace(/\/$/, '');
+
+function resolveImageSrc(src) {
+  if (!src) return null;
+  if (/^https?:\/\//i.test(src)) return src;
+  if (src.startsWith('/')) return `${CLIENT_ASSETS_ORIGIN}${src}`;
+  return src;
+}
+
+/**
+ * 안전한 이미지 썸네일 — 경로 없거나 로드 실패 시 placeholder 아이콘.
+ * styled-components 의 기본 export 와 React 컴포넌트가 같은 이름을 가져도 무방.
+ */
+function Thumbnail({ src, alt }) {
+  const [errored, setErrored] = useState(false);
+  const resolved = resolveImageSrc(src);
+  if (!resolved || errored) {
+    return (
+      <ThumbPlaceholder title={alt}>
+        <MdImageNotSupported size={16} />
+      </ThumbPlaceholder>
+    );
+  }
+  return <ThumbImg src={resolved} alt={alt || ''} onError={() => setErrored(true)} />;
+}
+
+const ThumbImg = styled.img`
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  background: ${({ theme }) => theme.colors.bgHover};
+`;
+
+const ThumbPlaceholder = styled.div`
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  background: ${({ theme }) => theme.colors.bgHover};
+  border: 1px dashed ${({ theme }) => theme.colors.border};
+`;
+
+/** 편집 행에서 썸네일 + URL 입력을 세로 정렬 */
+const ThumbColumn = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: ${({ theme }) => theme.spacing.xs};
+`;
+
+/** itemType 표시 배지 — 미지정/UNKNOWN 은 경고 색 */
+const ItemTypeBadge = styled.span`
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: ${({ theme }) => theme.layout?.cardRadius || '4px'};
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  font-family: ${({ theme }) => theme.fonts.mono};
+  ${({ $unsupported, theme }) => $unsupported
+    ? `color: ${theme.colors.warning ?? theme.colors.error}; background: ${theme.colors.warningBg ?? theme.colors.errorBg}; border: 1px solid ${theme.colors.warning ?? theme.colors.error};`
+    : `color: ${theme.colors.textSecondary}; background: ${theme.colors.bgHover}; border: 1px solid ${theme.colors.border};`}
+`;
+
+/** 인라인 편집 select — EditInput 과 시각 통일 */
+const EditSelect = styled.select`
+  height: 30px;
+  padding: 0 ${({ theme }) => theme.spacing.sm};
+  border: 1px solid ${({ theme }) => theme.colors.primary};
+  border-radius: 4px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  background: ${({ theme }) => theme.colors.bgCard};
+  cursor: pointer;
+  min-width: 140px;
+
+  &:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px ${({ theme }) => theme.colors.primaryLight};
+  }
 `;
 
 const Th = styled.th`
