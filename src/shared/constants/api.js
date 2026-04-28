@@ -77,6 +77,30 @@ export const PAYMENT_ADMIN_ENDPOINTS = {
   POINT_ITEM_IMAGE_UPLOAD: `${ADMIN}/point/items/images`,
 };
 
+/* ── 영화 티켓 추첨 관리 (윤형주) ── 2026-04-28 신규
+ *
+ * 백엔드 AdminLotteryController(@RequestMapping("/api/v1/admin/lottery")) 매핑:
+ *   GET    /lottery/cycles                   — 회차 페이징 (status 필터)
+ *   GET    /lottery/cycles/{lotteryId}       — 회차 상세 (통계 포함)
+ *   PATCH  /lottery/cycles/{lotteryId}       — winner_count / notes 수정
+ *   POST   /lottery/cycles/{lotteryId}/draw  — 수동 추첨 트리거
+ *   GET    /lottery/cycles/{lotteryId}/entries — 응모자 명단 (status 필터)
+ *
+ * 결제/포인트 탭 하위에 "추첨 관리" 서브탭으로 노출된다 (응모권 자체가 PointItem).
+ */
+export const LOTTERY_ADMIN_ENDPOINTS = {
+  /** 회차 페이징 — GET (query: status?, page, size, sort) */
+  CYCLES: `${ADMIN}/lottery/cycles`,
+  /** 회차 상세 — GET (path: lotteryId) */
+  CYCLE_DETAIL: (lotteryId) => `${ADMIN}/lottery/cycles/${lotteryId}`,
+  /** 회차 수정 — PATCH (path: lotteryId, body: { winnerCount?, notes? }) */
+  CYCLE_UPDATE: (lotteryId) => `${ADMIN}/lottery/cycles/${lotteryId}`,
+  /** 수동 추첨 — POST (path: lotteryId, body 없음) */
+  CYCLE_DRAW: (lotteryId) => `${ADMIN}/lottery/cycles/${lotteryId}/draw`,
+  /** 응모자 명단 — GET (path: lotteryId, query: status?, page, size) */
+  CYCLE_ENTRIES: (lotteryId) => `${ADMIN}/lottery/cycles/${lotteryId}/entries`,
+};
+
 /* ── 고객센터 관리 (윤형주) ──
  * 2026-04-08: 앱 공지(AppNotice) 통합으로 NOTICE_ACTIVE 추가 (활성 토글 PATCH).
  *             구 /api/v1/admin/app-notices/* 엔드포인트는 /notices/*로 흡수됨.
