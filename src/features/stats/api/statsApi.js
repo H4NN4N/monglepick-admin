@@ -98,7 +98,7 @@ export async function fetchPopularKeywords(params) {
  * @param {Object} params
  * @param {string} [params.period] - 집계 기간 (1d | 7d | 30d)
  * @param {number} [params.limit=20] - 상위 N개
- * @returns {Promise<Array>} [{ keyword, searchCount, resultCount, conversionRate }]
+ * @returns {Promise<Array>} [{ keyword, searchCount, sessionCount, resultCount, conversionRate }]
  */
 export async function fetchSearchHistoryKeywords(params) {
   const data = await backendApi.get(`${STATS}/search/history`, { params });
