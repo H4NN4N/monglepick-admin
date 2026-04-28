@@ -247,7 +247,7 @@ export default function PostTab() {
               <Th $w="70px">좋아요</Th>
               <Th $w="70px">댓글수</Th>
               <Th $w="80px">블라인드</Th>
-              <Th $w="70px">삭제됨</Th>
+              <Th>수정 사유</Th>
               <Th $w="140px">작성일</Th>
               <Th $w="100px">액션</Th>
             </tr>
@@ -255,13 +255,13 @@ export default function PostTab() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={10}>
+                <td colSpan={9}>
                   <CenterCell>불러오는 중...</CenterCell>
                 </td>
               </tr>
             ) : posts.length === 0 ? (
               <tr>
-                <td colSpan={10}>
+                <td colSpan={9}>
                   <CenterCell>게시글이 없습니다.</CenterCell>
                 </td>
               </tr>
@@ -302,12 +302,11 @@ export default function PostTab() {
                       label={post.isBlinded ? '블라인드' : '정상'}
                     />
                   </Td>
-                  {/* 삭제 여부 */}
+                  {/* 수정 사유 */}
                   <Td>
-                    <StatusBadge
-                      status={post.isDeleted ? 'error' : 'default'}
-                      label={post.isDeleted ? '삭제됨' : '-'}
-                    />
+                    <EditReasonText title={post.adminEditReason ?? ''}>
+                      {post.adminEditReason ?? '-'}
+                    </EditReasonText>
                   </Td>
                   {/* 작성일 */}
                   <Td>
@@ -572,6 +571,16 @@ const TitleText = styled.span`
 const MutedText = styled.span`
   color: ${({ theme }) => theme.colors.textMuted};
   font-size: ${({ theme }) => theme.fontSizes.xs};
+`;
+
+const EditReasonText = styled.span`
+  display: block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
 `;
 
 const ActionRow = styled.div`
