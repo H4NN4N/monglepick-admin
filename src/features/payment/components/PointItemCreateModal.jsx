@@ -40,13 +40,23 @@ import { createPointItem, uploadPointItemImage } from '../api/paymentApi';
  *
  * "미지정"을 선택하면 Backend 가 기본 "general" 로 저장한다(상점 노출용 일반 카테고리).
  */
+/**
+ * 카테고리 드롭다운 — 2026-04-28 v3.5 6슬롯 꾸미기 확장.
+ *
+ * Backend `PointItemCategory` 9종(소문자)과 동기화. 꾸미기 6슬롯(아바타/배지/프레임/배경/칭호/이펙트) +
+ * 비꾸미기 3종(쿠폰/응모권/힌트). 미지정은 Backend 가 "general" 로 저장.
+ */
 const CATEGORY_OPTIONS = [
-  { value: '',         label: '미지정 (general)' },
-  { value: 'avatar',   label: '아바타 (프로필 꾸미기)' },
-  { value: 'badge',    label: '배지 (프로필 꾸미기)' },
-  { value: 'coupon',   label: '쿠폰 (AI 이용권 등)' },
-  { value: 'apply',    label: '응모권' },
-  { value: 'hint',     label: '힌트' },
+  { value: '',           label: '미지정 (general)' },
+  { value: 'avatar',     label: '아바타 (프로필 꾸미기)' },
+  { value: 'badge',      label: '배지 (프로필 꾸미기)' },
+  { value: 'frame',      label: '프레임 (프로필 테두리)' },
+  { value: 'background', label: '배경 (프로필 카드 뒷배경)' },
+  { value: 'title',      label: '칭호 (닉네임 텍스트 라벨)' },
+  { value: 'effect',     label: '이펙트 (프로필 위 애니메이션)' },
+  { value: 'coupon',     label: '쿠폰 (AI 이용권 등)' },
+  { value: 'apply',      label: '응모권' },
+  { value: 'hint',       label: '힌트' },
 ];
 
 /**
@@ -60,9 +70,13 @@ const CATEGORY_OPTIONS = [
  */
 const ITEM_TYPE_OPTIONS = [
   { value: '',                   label: '미지정 (교환 차단됨)', group: '' },
-  /* 아바타·배지 일반화 sentinel — 신규 등록 시 권장 */
+  /* 꾸미기 6슬롯 — Generic sentinel 권장 (운영자가 enum 추가 없이 행 데이터만 등록) */
   { value: 'AVATAR_GENERIC',     label: '아바타 - 일반 (영구)',          group: '꾸미기' },
   { value: 'BADGE_GENERIC',      label: '배지 - 일반 (유효기간 가변)',  group: '꾸미기' },
+  { value: 'FRAME_GENERIC',      label: '프레임 - 일반 (유효기간 가변)', group: '꾸미기' },
+  { value: 'BACKGROUND_GENERIC', label: '배경 - 일반 (유효기간 가변)',   group: '꾸미기' },
+  { value: 'TITLE_GENERIC',      label: '칭호 - 일반 (영구 권장)',        group: '꾸미기' },
+  { value: 'EFFECT_GENERIC',     label: '이펙트 - 일반 (유효기간 가변)', group: '꾸미기' },
   /* 레거시 호환 — 기존 시드 수정 시에만 사용 */
   { value: 'AVATAR_MONGLE',      label: '아바타 - 몽글이 (레거시)',     group: '레거시' },
   { value: 'BADGE_PREMIUM',      label: '배지 - 프리미엄 (30일 고정)',  group: '레거시' },
@@ -100,15 +114,21 @@ export default function PointItemCreateModal({ isOpen, onClose, onCreated }) {
   const fileInputRef = useRef(null);
 
   /**
-   * 카테고리 → 업로드 subdir 매핑.
+   * 카테고리 → 업로드 subdir 매핑 (2026-04-28 v3.5 6슬롯 확장).
    *
-   * Backend ImageService 의 ADMIN_ALLOWED_SUBDIRS = {avatars, badges} 만 허용.
-   * 그 외 카테고리(coupon/apply/hint 등)는 일반적으로 이미지가 필요 없거나 카테고리 아이콘으로
-   * 대체되므로 업로드 버튼 자체를 비활성화한다.
+   * <p>Backend ImageService 의 ADMIN_ALLOWED_SUBDIRS 가 6슬롯을 모두 허용하도록 확장돼야 한다
+   * (참고: avatars/badges/frames/backgrounds/titles/effects). 칭호(title)는 텍스트 기반이라
+   * 일반적으로 이미지 불필요하지만, 운영자가 칭호 옆 아이콘을 첨부하고 싶을 수 있어 업로드 허용.</p>
+   *
+   * <p>비꾸미기 카테고리(coupon/apply/hint)는 카테고리 아이콘으로 대체되므로 비활성.</p>
    */
   function resolveUploadSubdir(category) {
-    if (category === 'avatar') return 'avatars';
-    if (category === 'badge')  return 'badges';
+    if (category === 'avatar')     return 'avatars';
+    if (category === 'badge')      return 'badges';
+    if (category === 'frame')      return 'frames';
+    if (category === 'background') return 'backgrounds';
+    if (category === 'title')      return 'titles';
+    if (category === 'effect')     return 'effects';
     return null;
   }
 

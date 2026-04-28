@@ -32,6 +32,8 @@ import PointManagement from '../components/PointManagement';
 import PointItemTable from '../components/PointItemTable';
 import PointPackTab from '../components/PointPackTab';
 import RewardPolicyTab from '../components/RewardPolicyTab';
+/* 2026-04-28 신규 — 영화 티켓 추첨 관리 (회차/응모자/수동 추첨) */
+import LotteryTab from '../components/LotteryTab';
 
 /** 서브탭 정의 */
 const TABS = [
@@ -43,6 +45,8 @@ const TABS = [
   { id: 'items',         label: '포인트 아이템' },
   { id: 'point_pack',    label: '포인트팩' },
   { id: 'reward_policy', label: '리워드 정책' },
+  /* 응모권(APPLY_MOVIE_TICKET) 추첨 관리 — 응모권 자체가 PointItem 이라 본 탭에 통합 */
+  { id: 'lottery',       label: '추첨 관리' },
 ];
 
 export default function PaymentPage() {
@@ -119,6 +123,7 @@ export default function PaymentPage() {
         {activeTab === 'items'         && <PointItemTable />}
         {activeTab === 'point_pack'    && <PointPackTab />}
         {activeTab === 'reward_policy' && <RewardPolicyTab />}
+        {activeTab === 'lottery'       && <LotteryTab />}
       </TabContent>
     </Wrapper>
   );

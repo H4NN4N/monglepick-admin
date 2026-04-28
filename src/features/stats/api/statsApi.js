@@ -156,14 +156,27 @@ export function fetchRetention(params) {
 }
 
 /**
- * 매출 분석 데이터 조회.
- * 월매출, MRR, ARPU, 일별 매출 시계열.
+ * 매출 분석 데이터 조회 (확장 — 2026-04-28).
+ *
+ * Backend RevenueResponse 모든 필드를 한 번에 반환.
+ * 기간(period) 은 dailyRevenue/시간대/요일/Top payer/결제수단/플랜분포의 윈도우 크기를 결정.
+ * monthlyRevenue/MRR/오늘/어제/이번주/12개월 추이는 기간 무관 항상 계산.
  *
  * @param {Object} params
  * @param {string} [params.period] - 집계 기간 (7d | 30d | 90d)
  * @returns {Promise<Object>} {
- *   monthlyRevenue, mrr, arpu,
- *   dailyRevenue: [{ date, amount }]
+ *   monthlyRevenue, mrr, arpu, avgOrderValue, totalRevenue,
+ *   todayRevenue, yesterdayRevenue, weekRevenue,
+ *   totalOrders, todayOrders, payingUsers,
+ *   refundAmount, refundCount, refundRate, netRevenue,
+ *   dailyRevenue: [{ date, amount, count }],
+ *   monthlyRevenueTrend: [{ month, amount, count }],
+ *   paymentMethodDistribution: [{ provider, label, amount, count, ratio }],
+ *   planRevenueDistribution: [{ planCode, planName, amount, count, ratio }],
+ *   orderTypeDistribution: [{ type, label, amount, count, ratio }],
+ *   hourlyDistribution: [{ hour, amount, count }],
+ *   weekdayDistribution: [{ weekday, weekdayName, amount, count }],
+ *   topPayers: [{ userId, nickname, totalAmount, orderCount }]
  * }
  */
 export function fetchRevenue(params) {
@@ -171,12 +184,17 @@ export function fetchRevenue(params) {
 }
 
 /**
- * 구독 현황 조회.
- * 활성 구독 수, 이탈률, 플랜별 분포.
+ * 구독 현황 조회 (확장 — 2026-04-28).
+ *
+ * Frontend 호환 키로 정렬: activeSubscriptions / planDistribution / churnRate(0~1).
  *
  * @returns {Promise<Object>} {
- *   activeSubscriptions, churnRate,
- *   planDistribution: [{ plan, count, ratio }]
+ *   activeSubscriptions, totalSubscriptions,
+ *   newThisMonth, cancelledThisMonth, expiredThisMonth,
+ *   churnRate,                            // 0.0 ~ 1.0 비율
+ *   subscriptionMrr, avgRevenuePerSubscriber,
+ *   planDistribution: [{ planCode, plan, count, ratio }],
+ *   planMrr: [{ planCode, plan, mrr, count, ratio }]
  * }
  */
 export function fetchSubscription() {
