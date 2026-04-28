@@ -40,7 +40,7 @@ const EMPTY_FORM = {
   adminNote: '',
 };
 
-export default function PopularSearchManage() {
+export default function PopularSearchManage({ refreshSignal = 0, onChanged }) {
   const [keywords, setKeywords] = useState([]);
   const [totalPages, setTotalPages] = useState(0);
   const [page, setPage] = useState(0);
@@ -67,7 +67,7 @@ export default function PopularSearchManage() {
     }
   }, [page]);
 
-  useEffect(() => { loadKeywords(); }, [loadKeywords]);
+  useEffect(() => { loadKeywords(); }, [loadKeywords, refreshSignal]);
 
   function openCreateModal() {
     setForm(EMPTY_FORM);
@@ -121,7 +121,8 @@ export default function PopularSearchManage() {
         await updatePopularKeyword(editTargetId, payload);
       }
       closeModal();
-      loadKeywords();
+      await loadKeywords();
+      onChanged?.();
     } catch (err) {
       alert(err.message || '저장 중 오류가 발생했습니다.');
     } finally {
@@ -134,7 +135,8 @@ export default function PopularSearchManage() {
     try {
       setBusyId(item.id);
       await updatePopularKeywordExcluded(item.id, !item.isExcluded);
-      loadKeywords();
+      await loadKeywords();
+      onChanged?.();
     } catch (err) {
       alert(err.message || '상태 변경 실패');
     } finally {
@@ -150,7 +152,8 @@ export default function PopularSearchManage() {
     try {
       setBusyId(item.id);
       await deletePopularKeyword(item.id);
-      loadKeywords();
+      await loadKeywords();
+      onChanged?.();
     } catch (err) {
       alert(err.message || '삭제 실패');
     } finally {
@@ -259,8 +262,9 @@ export default function PopularSearchManage() {
             </DialogTitle>
             <form onSubmit={handleSubmit}>
               <Field>
-                <Label>키워드 (UNIQUE)</Label>
+                <Label htmlFor="popular-search-keyword">키워드 (UNIQUE)</Label>
                 <Input
+                  id="popular-search-keyword"
                   type="text"
                   name="keyword"
                   value={form.keyword}
@@ -276,8 +280,9 @@ export default function PopularSearchManage() {
               </Field>
               <FieldRow>
                 <Field>
-                  <Label>고정 노출 순위 (선택)</Label>
+                  <Label htmlFor="popular-search-display-rank">고정 노출 순위 (선택)</Label>
                   <Input
+                    id="popular-search-display-rank"
                     type="number"
                     name="displayRank"
                     value={form.displayRank}
@@ -287,8 +292,9 @@ export default function PopularSearchManage() {
                   />
                 </Field>
                 <Field>
-                  <Label>수동 가중치</Label>
+                  <Label htmlFor="popular-search-manual-priority">수동 가중치</Label>
                   <Input
+                    id="popular-search-manual-priority"
                     type="number"
                     name="manualPriority"
                     value={form.manualPriority}
@@ -300,6 +306,7 @@ export default function PopularSearchManage() {
               <Field>
                 <CheckboxLabel>
                   <input
+                    id="popular-search-is-excluded"
                     type="checkbox"
                     name="isExcluded"
                     checked={form.isExcluded}
@@ -309,8 +316,9 @@ export default function PopularSearchManage() {
                 </CheckboxLabel>
               </Field>
               <Field>
-                <Label>관리자 메모</Label>
+                <Label htmlFor="popular-search-admin-note">관리자 메모</Label>
                 <Textarea
+                  id="popular-search-admin-note"
                   name="adminNote"
                   value={form.adminNote}
                   onChange={handleFormChange}

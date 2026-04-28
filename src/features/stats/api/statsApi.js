@@ -79,15 +79,41 @@ export function fetchRecommendationLogs(params) {
 
 /**
  * 인기 검색어 목록 조회.
- * 순위, 키워드, 검색 수, 전환율 포함.
+ * trending_keywords 누적 검색 수 기반 TOP N.
  *
  * @param {Object} params
- * @param {string} [params.period] - 집계 기간 (7d | 30d)
- * @param {number} [params.size=20] - 상위 N개
- * @returns {Promise<Array>} [{ rank, keyword, searchCount, conversionRate }]
+ * @param {number} [params.limit=20] - 상위 N개
+ * @returns {Promise<Array>} [{ keyword, searchCount, id, displayRank, manualPriority, isExcluded, adminNote }]
  */
-export function fetchPopularKeywords(params) {
-  return backendApi.get(`${STATS}/search/popular`, { params });
+export async function fetchPopularKeywords(params) {
+  const data = await backendApi.get(`${STATS}/search/popular`, { params });
+  return Array.isArray(data?.keywords) ? data.keywords : [];
+}
+
+/**
+ * 기간별 검색 이력 키워드 통계 조회.
+ *
+ * @param {Object} params
+ * @param {string} [params.period] - 집계 기간 (1d | 7d | 30d)
+ * @param {number} [params.limit=20] - 상위 N개
+ * @returns {Promise<Array>} [{ keyword, searchCount, resultCount, conversionRate }]
+ */
+export async function fetchSearchHistoryKeywords(params) {
+  const data = await backendApi.get(`${STATS}/search/history`, { params });
+  return Array.isArray(data?.keywords) ? data.keywords : [];
+}
+
+/**
+ * 특정 키워드의 클릭 영화 상세 통계 조회.
+ *
+ * @param {Object} params
+ * @param {string} params.keyword - 기준 키워드
+ * @param {string} [params.period] - 집계 기간 (1d | 7d | 30d)
+ * @param {number} [params.limit=20] - 상위 N개
+ * @returns {Promise<Object>} { keyword, totalClicks, movies }
+ */
+export function fetchSearchKeywordClicks(params) {
+  return backendApi.get(`${STATS}/search/history/clicks`, { params });
 }
 
 /**
@@ -95,7 +121,7 @@ export function fetchPopularKeywords(params) {
  * 검색 성공률, 총 검색 수, 0건 결과 검색 수.
  *
  * @param {Object} params
- * @param {string} [params.period] - 집계 기간 (7d | 30d)
+ * @param {string} [params.period] - 집계 기간 (1d | 7d | 30d)
  * @returns {Promise<Object>} { successRate, totalSearches, zeroResultSearches }
  */
 export function fetchSearchQuality(params) {
