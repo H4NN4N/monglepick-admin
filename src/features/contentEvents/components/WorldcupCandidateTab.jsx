@@ -33,6 +33,9 @@ import {
   createWorldcupCategory,
   updateWorldcupCategory,
 } from '../api/worldcupCategoryApi';
+// 2026-04-28: AI 어시스턴트의 worldcup_candidate_draft → location.state.draft 수신용.
+// 다른 10개 탭(NoticeTab/FaqTab/HelpTab/BannerTab/QuizManagementTab 등) 과 동일 패턴.
+import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
 
 const PAGE_SIZE = 10;
 const MODE_CREATE = 'CREATE';
@@ -50,7 +53,18 @@ const EMPTY_CATEGORY_FORM = {
   displayOrder: '0',
 };
 
-export default function WorldcupCandidateTab() {
+/**
+ * @param {Object} props
+ * @param {string} [props.aiModal] - ContentEventsPage 가 전달하는 queryModal 값.
+ *   AI 어시스턴트가 `?tab=worldcup_candidate&modal=create` 로 진입했을 때 'create'.
+ *   draft prefill 까지 동시 적용된다 (useAiPrefill 훅으로 읽음).
+ */
+export default function WorldcupCandidateTab({ aiModal } = {}) {
+  /* ── AI prefill (worldcup_candidate_draft: ?tab=worldcup_candidate&modal=create) ── */
+  // draft 필드: { movieId, tier? }. tier 는 worldcup 카테고리 코드(예: 'ACTION').
+  // bannerText 는 모달 상단에 "AI 가 채운 내용이에요" 배너로 노출.
+  const { draft, bannerText } = useAiPrefill();
+
   /* ── 목록 상태 ── */
   const [candidates, setCandidates] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -141,6 +155,23 @@ export default function WorldcupCandidateTab() {
   useEffect(() => { loadCategories(); }, [loadCategories]);
   useEffect(() => () => clearTimeout(searchDebounceRef.current), []);
 
+  /**
+   * 2026-04-28: AI 어시스턴트 prefill 자동 오픈.
+   *
+   * ContentEventsPage 가 `?tab=worldcup_candidate&modal=create` 로 진입 시
+   * `aiModal='create'` prop 을 넘긴다. 카테고리 로드가 끝나면 (필수 — openCreateModal 가
+   * 빈 카테고리 목록일 때 거절) 모달 자동 오픈 + draft 적용.
+   *
+   * `categories.length` 의존성으로 한 번만 트리거 (이미 모달이 열려있으면 중복 실행 방지).
+   */
+  useEffect(() => {
+    if (aiModal !== 'create' || modalMode || categoriesLoading || categories.length === 0) return;
+    openCreateModal(draft);
+    // openCreateModal 은 다른 setter 들에 의존하므로 ESLint exhaustive-deps 비활성화.
+    // categories.length 와 aiModal 변경 시에만 트리거되도록 의도적 제한.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiModal, categoriesLoading, categories.length]);
+
   function handleCategoryFilterChange(e) {
     const value = e.target.value;
     setCategoryFilterInput(value);
@@ -174,7 +205,16 @@ export default function WorldcupCandidateTab() {
     setCategoryFilterFocused(false);
   }
 
-  function openCreateModal() {
+  /**
+   * 신규 등록 모달 오픈.
+   *
+   * @param {Object} [aiDraft] - AI 어시스턴트가 채운 초안.
+   *   `{ movieId?: string, tier?: string }` — tier 는 worldcup 카테고리 코드로 매핑.
+   *   draft.movieId 가 있으면 폼의 movieId 와 검색 키워드 양쪽 미리 세팅하여
+   *   관리자가 검색 결과에서 바로 선택할 수 있도록 한다 (movieId 단독 prefill 만으로는
+   *   selectedMovies 에 영화 메타가 없어 저장이 불가능하기 때문).
+   */
+  function openCreateModal(aiDraft) {
     if (categoriesLoading) {
       alert('카테고리 목록을 불러오는 중입니다. 잠시 후 다시 시도하세요.');
       return;
@@ -183,11 +223,18 @@ export default function WorldcupCandidateTab() {
       alert('등록된 월드컵 카테고리가 없습니다. 먼저 `카테고리 등록`으로 카테고리를 추가하세요.');
       return;
     }
+    // tier(카테고리 코드) 가 실제 등록된 카테고리 코드와 매칭되면 사용, 아니면 default.
+    const draftCategory = aiDraft?.tier
+      && categories.some((c) => c.categoryCode === aiDraft.tier)
+      ? aiDraft.tier
+      : getDefaultCategoryCode();
     setForm({
       ...EMPTY_FORM,
-      category: getDefaultCategoryCode(),
+      movieId: aiDraft?.movieId ?? '',
+      category: draftCategory,
     });
-    setMovieKeyword('');
+    // movieId 가 prefill 되면 검색 키워드에도 동일 값을 넣어 관리자가 곧바로 검색 실행 가능.
+    setMovieKeyword(aiDraft?.movieId ?? '');
     setMoviePopularityMin('');
     setMoviePopularityMax('');
     setMovieResults([]);
@@ -716,6 +763,11 @@ export default function WorldcupCandidateTab() {
             <DialogTitle>
               {modalMode === MODE_CREATE ? '월드컵 후보 신규 등록' : '월드컵 후보 수정'}
             </DialogTitle>
+            {/* 2026-04-28: AI 어시스턴트가 채운 초안일 때만 노출.
+                NoticeTab/FaqTab 등 다른 탭과 동일한 패턴 — useAiPrefill 의 bannerText 가 null 이 아닐 때 렌더. */}
+            {modalMode === MODE_CREATE && bannerText && (
+              <AiPrefillBanner role="status">{bannerText}</AiPrefillBanner>
+            )}
             <form onSubmit={handleSubmit}>
               {modalMode === MODE_CREATE && (
                 <Field>
@@ -1441,6 +1493,22 @@ const DialogTitle = styled.h3`
   font-weight: ${({ theme }) => theme.fontWeights.semibold};
   margin-bottom: ${({ theme }) => theme.spacing.lg};
   color: ${({ theme }) => theme.colors.textPrimary};
+`;
+
+/**
+ * 2026-04-28 — AI 어시스턴트 prefill 안내 배너.
+ * NoticeTab/FaqTab/HelpTab 등 다른 탭과 동일한 시각 톤 (primaryLight 배경 + primary 텍스트).
+ * useAiPrefill().bannerText 가 null 이 아닐 때만 노출되어 일반 등록 흐름에는 영향 없음.
+ */
+const AiPrefillBanner = styled.div`
+  margin-bottom: ${({ theme }) => theme.spacing.md};
+  padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
+  background: ${({ theme }) => theme.colors.primaryLight};
+  border: 1px solid ${({ theme }) => theme.colors.primary};
+  border-radius: 6px;
+  color: ${({ theme }) => theme.colors.primary};
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
 `;
 const Field = styled.div`
   margin-bottom: ${({ theme }) => theme.spacing.md};

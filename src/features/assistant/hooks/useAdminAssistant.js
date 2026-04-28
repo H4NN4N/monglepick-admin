@@ -22,8 +22,26 @@
  *    AssistantChatPanel → NavigationCard 가 이동 버튼을 렌더한다.
  *  - 상태머신은 기존 그대로 (streaming → done/error). 두 이벤트는 done 전에 도달한다.
  *
+ * Phase 4 (2026-04-27): table_data SSE 이벤트 연결.
+ *  - Agent 가 read tool 결과(list/Page) 가 임계행수(>=3) 이상이면 `table_data` 발행.
+ *  - 같은 assistant 메시지에 여러 read tool 호출이 누적될 수 있어(report intent ReAct
+ *    루프) `tables` 배열로 append 한다. 각 element 는 단일 표 페이로드.
+ *  - AssistantChatPanel → TableDataCard 가 각 항목을 카드 한 장씩 렌더한다.
+ *
+ * Phase 4 후속 (2026-04-28): chart_data SSE 이벤트 연결.
+ *  - 등록된 시계열 stats tool (stats_trends · dashboard_trends · stats_revenue) 결과면
+ *    chart_data 도 발행. 동일 assistant 메시지에 여러 차트 누적 가능 → `charts[]`.
+ *  - AssistantChatPanel → ChartDataCard 가 recharts 라인/막대 차트로 렌더.
+ *
  * 상태 모델:
- *   messages: [{ id, role, text, status?, toolCalls?, toolResults?, formPrefill?, navigation?, error? }]
+ *   messages: [{
+ *     id, role, text,
+ *     status?, toolCalls?, toolResults?,
+ *     formPrefill?, navigation?,
+ *     tables?,           // Phase 4: table_data 누적 배열
+ *     charts?,           // Phase 4 후속: chart_data 누적 배열
+ *     error?,
+ *   }]
  *   status:   'idle' | 'streaming' | 'awaiting_confirmation' | 'done' | 'error'
  *   confirmation: ConfirmationPayload | null  (예비 보관 — v3 에서 미사용)
  *   sessionId: string
@@ -136,6 +154,20 @@ export default function useAdminAssistant() {
         // assistant 메시지의 navigation 필드에 저장 → NavigationCard 가 렌더.
         updateAssistant(assistantId, { navigation: payload });
       },
+      onTableData: (payload) => {
+        // Phase 4 (2026-04-27): tool_executor 직후 list/Page 결과가 임계행수 이상이면 도착.
+        // report intent ReAct 루프에서 여러 번 발행될 수 있어 `tables` 배열로 append.
+        // TableDataCard 가 각 element 를 카드 한 장씩 렌더.
+        if (!payload) return;
+        appendTrace(assistantId, 'tables', payload);
+      },
+      onChartData: (payload) => {
+        // Phase 4 후속 (2026-04-28): 등록된 시계열 stats tool (stats_trends 등) 호출 후 도착.
+        // table_data 와 동시에 발행 가능. ReAct 루프에서 여러 차트 누적 → `charts[]`.
+        // ChartDataCard 가 recharts 라인/막대 차트로 렌더.
+        if (!payload) return;
+        appendTrace(assistantId, 'charts', payload);
+      },
       onDone: () => {
         updateAssistant(assistantId, { status: 'done' });
         setStatus('done');
@@ -207,6 +239,8 @@ export default function useAdminAssistant() {
           toolResults: [],
           formPrefill: null,  // form_prefill SSE 이벤트 수신 시 채워짐 → FormPrefillCard 렌더
           navigation: null,   // navigation SSE 이벤트 수신 시 채워짐 → NavigationCard 렌더
+          tables: [],         // Phase 4: table_data SSE 가 hop 마다 누적됨 → TableDataCard 1장씩 렌더
+          charts: [],         // Phase 4 후속: chart_data SSE 누적 → ChartDataCard 1장씩 렌더
         },
       ]);
       setStatus('streaming');
