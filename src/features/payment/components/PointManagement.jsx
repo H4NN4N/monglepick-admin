@@ -34,16 +34,25 @@ const MAX_MANUAL_POINT = 100_000_000;
  * 포인트 변동 유형 → StatusBadge 매핑.
  * 백엔드 `pointType` 값은 소문자 (earn/spend/refund/revoke/attendance 등) 이므로
  * 대소문자 무관 매핑을 위해 .toLowerCase() 적용.
+ *
+ * 2026-04-28 — admin_grant/admin_revoke 추가. 관리자 수동 지급/회수가 일반
+ * bonus/revoke 와 통계상 분리되도록 별도 라벨("운영 지급"/"운영 회수")을 표시한다.
+ * 운영 조정은 통계 KPI(총발행/총소비)에서 자동 제외되므로 운영자가 시각적으로
+ * 즉시 구분할 수 있도록 'info' 상태(파란 톤)로 표시한다.
  */
 const POINT_TYPE_MAP = {
-  earn:       { status: 'success', label: '적립' },
-  spend:      { status: 'error',   label: '차감' },
-  refund:     { status: 'default', label: '환불' },
-  revoke:     { status: 'default', label: '회수' },
-  attendance: { status: 'info',    label: '출석' },
-  purchase:   { status: 'warning', label: '구매' },
-  expiration: { status: 'default', label: '만료' },
-  manual:     { status: 'info',    label: '수동' },
+  earn:         { status: 'success', label: '적립' },
+  spend:        { status: 'error',   label: '차감' },
+  bonus:        { status: 'success', label: '보너스' },
+  refund:       { status: 'default', label: '환불' },
+  revoke:       { status: 'default', label: '회수' },
+  admin_grant:  { status: 'info',    label: '운영 지급' },
+  admin_revoke: { status: 'info',    label: '운영 회수' },
+  attendance:   { status: 'info',    label: '출석' },
+  purchase:     { status: 'warning', label: '구매' },
+  expire:       { status: 'default', label: '만료' },
+  expiration:   { status: 'default', label: '만료' },
+  manual:       { status: 'info',    label: '수동' },
 };
 
 function resolveTypeBadge(pointType) {

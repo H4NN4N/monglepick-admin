@@ -30,12 +30,21 @@ const STATUS_BADGE = {
   dismissed: { status: 'default', label: '무시됨' },
 };
 
-/** 대상 타입 한국어 라벨 */
+/** 대상 타입 한국어 라벨 (대·소문자 모두 대응) */
 const TARGET_TYPE_LABELS = {
   POST: '게시글',
   REVIEW: '리뷰',
   COMMENT: '댓글',
   USER: '사용자',
+};
+
+/** 신고 유형 코드 → 한국어 라벨 */
+const REASON_LABELS = {
+  SPAM: '스팸 / 도배',
+  ABUSE: '욕설 / 비방',
+  OBSCENE: '음란물',
+  DEFAMATION: '명예훼손',
+  ETC: '기타',
 };
 
 /** 페이지당 항목 수 */
@@ -62,6 +71,20 @@ function formatDate(dateStr) {
   const d = new Date(dateStr);
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * declarationContent(예: "SPAM", "ABUSE: 추가설명")를 한국어 라벨로 변환.
+ * @param {string} content - 신고 내용 원문
+ * @returns {string}
+ */
+function formatReason(content) {
+  if (!content) return '-';
+  const colonIdx = content.indexOf(': ');
+  const code = colonIdx >= 0 ? content.slice(0, colonIdx) : content;
+  const detail = colonIdx >= 0 ? content.slice(colonIdx + 2) : '';
+  const label = REASON_LABELS[code.trim().toUpperCase()] ?? code;
+  return detail ? `${label}: ${detail}` : label;
 }
 
 /**
@@ -225,7 +248,7 @@ export default function ReportTab({ aiReportId = null }) {
                     <Td>
                       <StatusBadge
                         status="info"
-                        label={TARGET_TYPE_LABELS[report.targetType] ?? report.targetType ?? '-'}
+                        label={TARGET_TYPE_LABELS[report.targetType?.toUpperCase()] ?? report.targetType ?? '-'}
                       />
                     </Td>
                     {/* 신고 대상 미리보기 (50자 truncate) */}
@@ -239,7 +262,7 @@ export default function ReportTab({ aiReportId = null }) {
                     {/* 신고 내용 */}
                     <Td>
                       <PreviewText $maxWidth="220px">
-                        {report.declarationContent ?? '-'}
+                        {formatReason(report.declarationContent)}
                       </PreviewText>
                     </Td>
                     {/* 독성 점수 (색상 배지) */}
@@ -311,7 +334,7 @@ export default function ReportTab({ aiReportId = null }) {
               </InfoRow>
               <InfoRow>
                 <InfoLabel>신고 내용</InfoLabel>
-                <InfoValue>{actionTarget.declarationContent ?? '-'}</InfoValue>
+                <InfoValue>{formatReason(actionTarget.declarationContent)}</InfoValue>
               </InfoRow>
               {actionTarget.toxicityScore != null && (
                 <InfoRow>

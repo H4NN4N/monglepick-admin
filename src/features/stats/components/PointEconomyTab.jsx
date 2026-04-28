@@ -54,8 +54,31 @@ const PERIOD_OPTIONS = [
   { value: '90d', label: '90일' },
 ];
 
-/** 포인트 유형별 파이차트 색상 */
-const TYPE_COLORS = ['#10b981', '#ef4444', '#6366f1', '#94a3b8', '#f59e0b', '#8b5cf6'];
+/**
+ * 포인트 유형별 파이차트 색상 (point_type 기반 매핑).
+ *
+ * 2026-04-28 — admin_grant/admin_revoke 는 동일 톤(slate)으로 묶어 "운영 조정"
+ * 카테고리임을 시각적으로 강조한다. 정상 발행/소비/보너스/회수와 색상이 분리되어
+ * 통계 KPI(총발행/총소비)에서 자동 제외되는 항목임이 한눈에 드러난다.
+ * 매핑이 없는 type 은 fallback 팔레트(인덱스 기반)로 처리한다.
+ */
+const TYPE_COLOR_MAP = {
+  earn:         '#10b981',  // 활동 리워드 — green
+  bonus:        '#f59e0b',  // 보너스 — amber
+  spend:        '#ef4444',  // 소비 — red
+  refund:       '#8b5cf6',  // 환불 — violet
+  revoke:       '#6366f1',  // 회수 — indigo
+  expire:       '#94a3b8',  // 만료 — slate-400
+  admin_grant:  '#475569',  // 운영 지급 — slate-600 (운영 조정 그룹)
+  admin_revoke: '#334155',  // 운영 회수 — slate-700 (운영 조정 그룹)
+};
+/** 매핑 없는 type 용 fallback 팔레트 */
+const TYPE_FALLBACK_COLORS = ['#10b981', '#ef4444', '#6366f1', '#94a3b8', '#f59e0b', '#8b5cf6'];
+
+/** point_type → 색상 해석 (매핑 우선, 없으면 fallback) */
+function resolveTypeColor(item, idx) {
+  return TYPE_COLOR_MAP[item?.pointType] ?? TYPE_FALLBACK_COLORS[idx % TYPE_FALLBACK_COLORS.length];
+}
 
 /** 등급별 바차트 색상 (팝콘 테마) */
 const GRADE_COLORS = {
@@ -234,8 +257,8 @@ export default function PointEconomyTab() {
                     label={({ name, percentage }) => `${name} ${percentage}%`}
                     labelLine={true}
                   >
-                    {typeItems.map((_, idx) => (
-                      <Cell key={`type-${idx}`} fill={TYPE_COLORS[idx % TYPE_COLORS.length]} />
+                    {typeItems.map((item, idx) => (
+                      <Cell key={`type-${item.pointType ?? idx}`} fill={resolveTypeColor(item, idx)} />
                     ))}
                   </Pie>
                   <Tooltip
