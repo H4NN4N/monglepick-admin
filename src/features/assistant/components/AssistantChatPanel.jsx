@@ -16,6 +16,8 @@ import ChatInput from './ChatInput';
 // import ConfirmationDialog from './ConfirmationDialog';
 import FormPrefillCard from './FormPrefillCard';
 import NavigationCard from './NavigationCard';
+import TableDataCard from './TableDataCard';
+import ChartDataCard from './ChartDataCard';
 import useAssistantQuickPrompts from '../hooks/useAssistantQuickPrompts';
 import { MdAutoAwesome, MdRefresh } from 'react-icons/md';
 
@@ -110,6 +112,20 @@ export default function AssistantChatPanel({
             {messages.map((m) => (
               <MessageItem key={m.id}>
                 <MessageBubble message={m} />
+                {/* Phase 4 후속 (2026-04-28): chart_data 이벤트가 누적되면 카드 한 장씩.
+                    시계열 통계(stats_trends · dashboard_trends · stats_revenue) 결과를
+                    recharts 라인/막대 차트로 렌더. 표(table_data)보다 위에 배치 — 보고서
+                    의도에서 "추세 → 상위 N건 표 → 액션 버튼" 순으로 자연스럽게 읽히도록. */}
+                {m.role === 'assistant' && Array.isArray(m.charts) && m.charts.map((c, i) => (
+                  <ChartDataCard key={`${m.id}_chart_${i}`} data={c} />
+                ))}
+                {/* Phase 4 (2026-04-27): table_data 이벤트가 hop 마다 누적되면 카드 한 장씩.
+                    report intent 의 ReAct 루프에서 reports_list / posts_list / users_list
+                    같은 list 응답마다 한 카드. narrator 자연어 본문 직후 위치해서 보고서
+                    답변과 표를 함께 본다. */}
+                {m.role === 'assistant' && Array.isArray(m.tables) && m.tables.map((t, i) => (
+                  <TableDataCard key={`${m.id}_table_${i}`} data={t} />
+                ))}
                 {/* v3 Phase F: form_prefill 이벤트 도착 시 FormPrefillCard 렌더.
                     assistant 메시지에 formPrefill 필드가 채워졌을 때만 표시.
                     버튼 클릭 → navigate(target_path, { state: { draft, source } }) */}
