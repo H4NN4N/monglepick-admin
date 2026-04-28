@@ -79,15 +79,41 @@ export function fetchRecommendationLogs(params) {
 
 /**
  * 인기 검색어 목록 조회.
- * 순위, 키워드, 검색 수, 전환율 포함.
+ * trending_keywords 누적 검색 수 기반 TOP N.
  *
  * @param {Object} params
- * @param {string} [params.period] - 집계 기간 (7d | 30d)
- * @param {number} [params.size=20] - 상위 N개
- * @returns {Promise<Array>} [{ rank, keyword, searchCount, conversionRate }]
+ * @param {number} [params.limit=20] - 상위 N개
+ * @returns {Promise<Array>} [{ keyword, searchCount, id, displayRank, manualPriority, isExcluded, adminNote }]
  */
-export function fetchPopularKeywords(params) {
-  return backendApi.get(`${STATS}/search/popular`, { params });
+export async function fetchPopularKeywords(params) {
+  const data = await backendApi.get(`${STATS}/search/popular`, { params });
+  return Array.isArray(data?.keywords) ? data.keywords : [];
+}
+
+/**
+ * 기간별 검색 이력 키워드 통계 조회.
+ *
+ * @param {Object} params
+ * @param {string} [params.period] - 집계 기간 (1d | 7d | 30d)
+ * @param {number} [params.limit=20] - 상위 N개
+ * @returns {Promise<Array>} [{ keyword, searchCount, resultCount, conversionRate }]
+ */
+export async function fetchSearchHistoryKeywords(params) {
+  const data = await backendApi.get(`${STATS}/search/history`, { params });
+  return Array.isArray(data?.keywords) ? data.keywords : [];
+}
+
+/**
+ * 특정 키워드의 클릭 영화 상세 통계 조회.
+ *
+ * @param {Object} params
+ * @param {string} params.keyword - 기준 키워드
+ * @param {string} [params.period] - 집계 기간 (1d | 7d | 30d)
+ * @param {number} [params.limit=20] - 상위 N개
+ * @returns {Promise<Object>} { keyword, totalClicks, movies }
+ */
+export function fetchSearchKeywordClicks(params) {
+  return backendApi.get(`${STATS}/search/history/clicks`, { params });
 }
 
 /**
@@ -95,7 +121,7 @@ export function fetchPopularKeywords(params) {
  * 검색 성공률, 총 검색 수, 0건 결과 검색 수.
  *
  * @param {Object} params
- * @param {string} [params.period] - 집계 기간 (7d | 30d)
+ * @param {string} [params.period] - 집계 기간 (1d | 7d | 30d)
  * @returns {Promise<Object>} { successRate, totalSearches, zeroResultSearches }
  */
 export function fetchSearchQuality(params) {
@@ -130,14 +156,27 @@ export function fetchRetention(params) {
 }
 
 /**
- * 매출 분석 데이터 조회.
- * 월매출, MRR, ARPU, 일별 매출 시계열.
+ * 매출 분석 데이터 조회 (확장 — 2026-04-28).
+ *
+ * Backend RevenueResponse 모든 필드를 한 번에 반환.
+ * 기간(period) 은 dailyRevenue/시간대/요일/Top payer/결제수단/플랜분포의 윈도우 크기를 결정.
+ * monthlyRevenue/MRR/오늘/어제/이번주/12개월 추이는 기간 무관 항상 계산.
  *
  * @param {Object} params
  * @param {string} [params.period] - 집계 기간 (7d | 30d | 90d)
  * @returns {Promise<Object>} {
- *   monthlyRevenue, mrr, arpu,
- *   dailyRevenue: [{ date, amount }]
+ *   monthlyRevenue, mrr, arpu, avgOrderValue, totalRevenue,
+ *   todayRevenue, yesterdayRevenue, weekRevenue,
+ *   totalOrders, todayOrders, payingUsers,
+ *   refundAmount, refundCount, refundRate, netRevenue,
+ *   dailyRevenue: [{ date, amount, count }],
+ *   monthlyRevenueTrend: [{ month, amount, count }],
+ *   paymentMethodDistribution: [{ provider, label, amount, count, ratio }],
+ *   planRevenueDistribution: [{ planCode, planName, amount, count, ratio }],
+ *   orderTypeDistribution: [{ type, label, amount, count, ratio }],
+ *   hourlyDistribution: [{ hour, amount, count }],
+ *   weekdayDistribution: [{ weekday, weekdayName, amount, count }],
+ *   topPayers: [{ userId, nickname, totalAmount, orderCount }]
  * }
  */
 export function fetchRevenue(params) {
@@ -145,12 +184,17 @@ export function fetchRevenue(params) {
 }
 
 /**
- * 구독 현황 조회.
- * 활성 구독 수, 이탈률, 플랜별 분포.
+ * 구독 현황 조회 (확장 — 2026-04-28).
+ *
+ * Frontend 호환 키로 정렬: activeSubscriptions / planDistribution / churnRate(0~1).
  *
  * @returns {Promise<Object>} {
- *   activeSubscriptions, churnRate,
- *   planDistribution: [{ plan, count, ratio }]
+ *   activeSubscriptions, totalSubscriptions,
+ *   newThisMonth, cancelledThisMonth, expiredThisMonth,
+ *   churnRate,                            // 0.0 ~ 1.0 비율
+ *   subscriptionMrr, avgRevenuePerSubscriber,
+ *   planDistribution: [{ planCode, plan, count, ratio }],
+ *   planMrr: [{ planCode, plan, mrr, count, ratio }]
  * }
  */
 export function fetchSubscription() {

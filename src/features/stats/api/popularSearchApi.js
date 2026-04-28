@@ -1,7 +1,7 @@
 /**
  * 운영 도구 — 인기 검색어(PopularSearchKeyword) 관리 API.
  *
- * 백엔드 AdminPopularSearchController(/api/v1/admin/popular-keywords) 6개 EP.
+ * 백엔드 AdminStatsController(/api/v1/admin/stats/popular-keywords) 경유 CRUD.
  *
  * - 목록 조회 (페이징, 수동 우선순위 DESC + createdAt DESC)
  * - 단건 조회
@@ -13,7 +13,7 @@
 
 import { backendApi } from '@/shared/api/axiosInstance';
 
-const BASE = '/api/v1/admin/popular-keywords';
+const BASE = '/api/v1/admin/stats/popular-keywords';
 
 /** 키워드 목록 조회 (페이징) */
 export function fetchPopularKeywords(params = {}) {
