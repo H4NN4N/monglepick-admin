@@ -92,14 +92,16 @@ export default function EngagementTab() {
   const ov = overview ?? {};
   const actItems = activities?.activities ?? [];
   const streakItems = streaks?.buckets ?? [];
+  const activityUsers = ov.activityUsers ?? ov.totalActivityUsers ?? 0;
+  const totalWishlist = ov.totalWishlist ?? ov.totalWishlists ?? 0;
 
   /** KPI 카드 정의 */
   const kpiCards = [
     { key: 'totalAttendance', icon: <MdEventAvailable size={18} />, title: '총 출석 체크', value: ovLoading ? '...' : `${fmt(ov.totalAttendance)}회`, subtitle: '누적 출석 체크 횟수', status: 'info' },
     { key: 'todayAttendance', icon: <MdToday size={18} />, title: '오늘 출석', value: ovLoading ? '...' : `${fmt(ov.todayAttendance)}명`, subtitle: '오늘 출석한 사용자', status: 'success' },
     { key: 'avgStreak', icon: <MdLocalFireDepartment size={18} />, title: '평균 연속 출석', value: ovLoading ? '...' : `${ov.avgStreakDays ?? 0}일`, subtitle: '전체 사용자 평균 스트릭', status: 'success' },
-    { key: 'activeUsers', icon: <MdPeople size={18} />, title: '활동 사용자', value: ovLoading ? '...' : `${fmt(ov.activityUsers)}명`, subtitle: '1개 이상 활동 진행 중', status: 'info' },
-    { key: 'wishlistCount', icon: <MdFavorite size={18} />, title: '위시리스트', value: ovLoading ? '...' : `${fmt(ov.totalWishlist)}건`, subtitle: '전체 위시리스트 항목', status: 'info' },
+    { key: 'activeUsers', icon: <MdPeople size={18} />, title: '활동 사용자', value: ovLoading ? '...' : `${fmt(activityUsers)}명`, subtitle: '1개 이상 활동 진행 중', status: 'info' },
+    { key: 'wishlistCount', icon: <MdFavorite size={18} />, title: '위시리스트', value: ovLoading ? '...' : `${fmt(totalWishlist)}건`, subtitle: '전체 위시리스트 항목', status: 'info' },
   ];
 
   return (
