@@ -138,6 +138,8 @@ export const AI_ADMIN_ENDPOINTS = {
   QUIZ_HISTORY: `${ADMIN}/ai/quiz/history`,
   /* 2026-04-28 신규 — quiz_generation 에이전트 운영 KPI (오늘/7d/30d 누적 + 상태 분포 + 14일 trend) */
   QUIZ_STATS: `${ADMIN}/ai/quiz/stats`,
+  /* 2026-04-29 신규 — 오늘 퀴즈 강제 발행 (QuizPublishScheduler.manualPublish 호출) */
+  QUIZ_PUBLISH_NOW: `${ADMIN}/quizzes/publish-now`,
   CHAT_SESSIONS: `${ADMIN}/ai/chat/sessions`,
   CHAT_MESSAGES: (sessionId) => `${ADMIN}/ai/chat/sessions/${sessionId}/messages`,
   CHAT_STATS: `${ADMIN}/ai/chat/stats`,

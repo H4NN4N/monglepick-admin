@@ -33,6 +33,21 @@ export function fetchQuizHistory(params) {
 }
 
 /**
+ * 오늘 퀴즈 강제 발행 (Backend, 2026-04-29 신규).
+ *
+ * <p>QuizPublishScheduler.manualPublish() 를 호출하여 APPROVED 1건을 즉시 발행한다.
+ * AiTriggerPanel "오늘 퀴즈 강제 발행" 카드가 호출. 이미 발행됐거나 후보 0건인 경우에도
+ * HTTP 200 + published=0 + 안내 메시지로 반환되므로 UI 는 토스트로 결과만 노출하면 된다.</p>
+ *
+ * @returns {Promise<Object>} 응답 형태:
+ *   - published {number}  이번 호출로 발행된 건수 (0 또는 1)
+ *   - message   {string}  UI 토스트용 한국어 안내
+ */
+export function publishQuizNow() {
+  return backendApi.post(AI_ADMIN_ENDPOINTS.QUIZ_PUBLISH_NOW);
+}
+
+/**
  * AI 퀴즈 운영 통계 조회 (Backend, 2026-04-28 신규).
  *
  * <p>quiz_generation 에이전트의 운영 가시성 KPI 를 한 번에 가져온다.
