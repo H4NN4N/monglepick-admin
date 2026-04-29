@@ -124,6 +124,10 @@ export const SUPPORT_ADMIN_ENDPOINTS = {
   TICKET_STATUS: (id) => `${ADMIN}/tickets/${id}/status`,
   TICKET_REPLY: (id) => `${ADMIN}/tickets/${id}/reply`,
   /* 2026-04-08: 비속어 사전(PROFANITY*) 엔드포인트 제거 */
+  /* 챗봇 로그 (2026-04-28 신규) — Agent 가 INSERT, Backend 는 read-only 조회 */
+  CHAT_LOGS: `${ADMIN}/support/chat-logs`,
+  CHAT_LOG_SESSION: (sessionId) => `${ADMIN}/support/chat-logs/sessions/${sessionId}`,
+  CHAT_LOG_SUMMARY: `${ADMIN}/support/chat-logs/summary`,
 };
 
 /* ── AI 운영 (윤형주) ──
@@ -132,6 +136,8 @@ export const SUPPORT_ADMIN_ENDPOINTS = {
 export const AI_ADMIN_ENDPOINTS = {
   QUIZ_GENERATE: `${ADMIN}/ai/quiz/generate`,
   QUIZ_HISTORY: `${ADMIN}/ai/quiz/history`,
+  /* 2026-04-28 신규 — quiz_generation 에이전트 운영 KPI (오늘/7d/30d 누적 + 상태 분포 + 14일 trend) */
+  QUIZ_STATS: `${ADMIN}/ai/quiz/stats`,
   CHAT_SESSIONS: `${ADMIN}/ai/chat/sessions`,
   CHAT_MESSAGES: (sessionId) => `${ADMIN}/ai/chat/sessions/${sessionId}/messages`,
   CHAT_STATS: `${ADMIN}/ai/chat/stats`,

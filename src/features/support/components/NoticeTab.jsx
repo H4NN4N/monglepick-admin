@@ -158,16 +158,26 @@ export default function NoticeTab() {
     if (!queryModal || modalOpen) return;
 
     if (queryModal === 'create') {
-      /* draft 필드명 (camelCase): title, type(→noticeType), pinned(→isPinned), content, startAt, endAt */
+      /*
+       * 2026-04-28 (길 A v3): Agent NoticeDraftArgs 가 Backend NoticeCreateRequest 와 1:1
+       * 매칭되도록 보강됐음. draft 가 채울 수 있는 모든 필드를 INITIAL_FORM 에 덮어씀.
+       * 누락된 필드는 INITIAL_FORM 기본값 그대로.
+       */
       const prefill = draft
         ? {
             ...INITIAL_FORM,
-            title:       draft.title       ?? INITIAL_FORM.title,
-            noticeType:  draft.type        ?? INITIAL_FORM.noticeType,
-            content:     draft.content     ?? INITIAL_FORM.content,
-            isPinned:    draft.pinned      ?? INITIAL_FORM.isPinned,
-            startAt:     fromIso(draft.startAt) ?? INITIAL_FORM.startAt,
-            endAt:       fromIso(draft.endAt)   ?? INITIAL_FORM.endAt,
+            title:       draft.title        ?? INITIAL_FORM.title,
+            noticeType:  draft.noticeType   ?? draft.type ?? INITIAL_FORM.noticeType,
+            content:     draft.content      ?? INITIAL_FORM.content,
+            isPinned:    draft.isPinned     ?? draft.pinned ?? INITIAL_FORM.isPinned,
+            displayType: draft.displayType  ?? INITIAL_FORM.displayType,
+            linkUrl:     draft.linkUrl      ?? INITIAL_FORM.linkUrl,
+            imageUrl:    draft.imageUrl     ?? INITIAL_FORM.imageUrl,
+            startAt:     fromIso(draft.startAt) || INITIAL_FORM.startAt,
+            endAt:       fromIso(draft.endAt)   || INITIAL_FORM.endAt,
+            publishedAt: fromIso(draft.publishedAt) || INITIAL_FORM.publishedAt,
+            priority:    draft.priority     ?? INITIAL_FORM.priority,
+            isActive:    draft.isActive     ?? INITIAL_FORM.isActive,
           }
         : INITIAL_FORM;
       setEditTarget(null);
@@ -181,7 +191,10 @@ export default function NoticeTab() {
         (n) => String(n.noticeId ?? n.id) === String(queryId)
       );
       if (target) {
-        openEditModal(target);
+        // 기존 데이터로 폼 채우고, 그 위에 AI draft 가 있으면 보강 필드만 덮어씀
+        // → "1번 공지 내용 보강해서 수정" 시 LLM 이 read 로 가져온 본문을 토대로 풍부한
+        //   content 를 채우면 그 값이 기존 content 를 대체한다.
+        openEditModal(target, draft);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -200,10 +213,14 @@ export default function NoticeTab() {
     setModalOpen(true);
   }
 
-  /* ── 모달 열기 (수정) ── */
-  function openEditModal(notice) {
+  /* ── 모달 열기 (수정) ──
+   * 2026-04-28 (길 A v3): aiDraft 가 있으면 기존 notice 값 위에 LLM 이 채운 보강 필드를
+   * 우선 적용한다. AI 가 "1번 공지 내용 보강해서 수정" 요청을 받았을 때 read 로 원본을
+   * 가져와 풍부한 새 본문을 content 에 넣으면, 그 값이 기존 content 를 대체한다.
+   */
+  function openEditModal(notice, aiDraft = null) {
     setEditTarget(notice);
-    setForm({
+    const base = {
       title: notice.title ?? '',
       noticeType: notice.noticeType ?? 'NOTICE',
       content: notice.content ?? '',
@@ -216,7 +233,24 @@ export default function NoticeTab() {
       endAt: fromIso(notice.endAt),
       priority: notice.priority ?? 0,
       isActive: notice.isActive ?? true,
-    });
+    };
+    if (aiDraft) {
+      // null/undefined 가 아닌 값만 덮어씀 — undefined 도 덮으면 기존값을 잃는다.
+      const overrides = {};
+      const fields = [
+        'title', 'noticeType', 'content', 'isPinned', 'displayType',
+        'linkUrl', 'imageUrl', 'priority', 'isActive',
+      ];
+      for (const f of fields) {
+        if (aiDraft[f] !== undefined && aiDraft[f] !== null) overrides[f] = aiDraft[f];
+      }
+      // 시간 필드는 ISO → datetime-local 변환
+      for (const f of ['startAt', 'endAt', 'publishedAt']) {
+        if (aiDraft[f]) overrides[f] = fromIso(aiDraft[f]);
+      }
+      Object.assign(base, overrides);
+    }
+    setForm(base);
     setModalOpen(true);
   }
 
