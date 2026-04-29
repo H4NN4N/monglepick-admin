@@ -206,3 +206,35 @@ export function replyToTicket(id, data) {
 }
 
 /* 2026-04-08: 비속어 사전 API 제거 (fetchProfanity/addProfanity/deleteProfanity/importProfanity/exportProfanity) */
+
+/* ── 챗봇 로그 (2026-04-28 신규) ──
+ * Agent (FastAPI) 가 매 턴 fire-and-forget INSERT 한 사용자 발화 / 의도 / 응답 / 1:1 유도 여부를
+ * 관리자 페이지에서 검색·트레이스·집계할 수 있도록 read-only 엔드포인트 호출.
+ */
+
+/**
+ * 챗봇 로그 페이징 검색.
+ * @param {Object} params - { intentKind, needsHuman, userId, keyword, from, to, page, size }
+ * @returns {Promise<Object>} 페이징된 LogItem
+ */
+export function fetchChatLogs(params) {
+  return backendApi.get(SUPPORT_ADMIN_ENDPOINTS.CHAT_LOGS, { params });
+}
+
+/**
+ * 단일 세션 트레이스 조회 (한 사용자의 대화 흐름 시간순).
+ * @param {string} sessionId
+ * @returns {Promise<Array>} LogItem 리스트 (시간 오름차순)
+ */
+export function fetchChatLogSession(sessionId) {
+  return backendApi.get(SUPPORT_ADMIN_ENDPOINTS.CHAT_LOG_SESSION(sessionId));
+}
+
+/**
+ * 통계 요약 — 의도 분포 / 일자별 추이 / TOP 발화 / 1:1 유도 비율.
+ * @param {Object} params - { from, to, topN }
+ * @returns {Promise<Object>} Summary
+ */
+export function fetchChatLogSummary(params) {
+  return backendApi.get(SUPPORT_ADMIN_ENDPOINTS.CHAT_LOG_SUMMARY, { params });
+}

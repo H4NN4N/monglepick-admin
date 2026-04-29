@@ -1,8 +1,10 @@
 /**
  * AI 생성 이력 컴포넌트.
- * 퀴즈 이력을 페이징으로 표시.
+ * 상단에 운영 KPI 카드(QuizStatsCard) + 하단에 퀴즈 이력 페이징 테이블.
  *
  * 2026-04-08: AI 리뷰 이력 탭 제거 (AI 리뷰 생성 기능 삭제).
+ * 2026-04-28: QuizStatsCard 상단 마운트 — quiz_generation 에이전트 운영 가시성 확보.
+ *             새로고침 버튼 클릭 시 refreshKey 가 증가하여 통계 카드도 함께 재페치된다.
  *
  * @param {Object} props - 없음 (자체 데이터 fetch)
  */
@@ -12,6 +14,7 @@ import styled from 'styled-components';
 import { MdRefresh, MdChevronLeft, MdChevronRight } from 'react-icons/md';
 import StatusBadge from '@/shared/components/StatusBadge';
 import { fetchQuizHistory } from '../api/aiApi';
+import QuizStatsCard from './QuizStatsCard';
 
 /** 생성 상태 → 뱃지 매핑 */
 function getGenBadge(status) {
@@ -35,6 +38,12 @@ export default function GenerationHistory() {
   const [quizPage, setQuizPage]         = useState(0);
   const [quizLoading, setQuizLoading]   = useState(false);
   const [quizError, setQuizError]       = useState(null);
+  /**
+   * QuizStatsCard 강제 재마운트용 키.
+   * 새로고침 버튼 클릭 시 +1 → 카드의 useEffect 가 재실행되어 통계도 새로 페치된다.
+   * 페이지 이동 시에는 통계가 바뀌지 않으므로 변경하지 않는다 (네트워크 절약).
+   */
+  const [statsRefreshKey, setStatsRefreshKey] = useState(0);
 
   /** 퀴즈 이력 조회 */
   const loadQuiz = useCallback(async (pageNum = 0) => {
@@ -51,6 +60,12 @@ export default function GenerationHistory() {
       setQuizLoading(false);
     }
   }, []);
+
+  /** 새로고침 버튼 — 이력 + 통계 카드 동시 재페치 */
+  const handleRefresh = useCallback(() => {
+    loadQuiz(quizPage);
+    setStatsRefreshKey((k) => k + 1);
+  }, [loadQuiz, quizPage]);
 
   /* 초기 로드 */
   useEffect(() => {
@@ -75,11 +90,14 @@ export default function GenerationHistory() {
 
   return (
     <Section>
+      {/* ── 상단 운영 KPI 카드 (2026-04-28 신규) ── */}
+      <QuizStatsCard refreshKey={statsRefreshKey} />
+
       <SectionHeader>
         <SectionTitle>퀴즈 생성 이력</SectionTitle>
         <RefreshButton
-          onClick={() => loadQuiz(quizPage)}
-          title="새로고침"
+          onClick={handleRefresh}
+          title="새로고침 (이력 + 통계)"
         >
           <MdRefresh size={16} />
         </RefreshButton>

@@ -109,25 +109,39 @@ export default function FaqTab() {
   useEffect(() => { loadFaqs(); }, [loadFaqs]);
 
   /**
-   * ?modal=create 쿼리가 있으면 FAQ 등록 모달을 자동 오픈.
-   * draft 가 있으면 category/question/answer 필드를 초기값으로 주입.
-   * (tags 필드는 현재 FaqTab 폼에 없으므로 무시)
+   * 2026-04-28 (길 A v3 보강) — `?modal=create` / `?modal=edit&id=N` 양쪽 자동 오픈.
+   *
+   * - draft.category 가 enum 6종(GENERAL/ACCOUNT/CHAT/RECOMMENDATION/COMMUNITY/PAYMENT) 외 값이면
+   *   INITIAL_FORM.category 로 fallback. 잘못된 enum 으로 Backend 400 이 나는 사고 방어.
+   * - edit 모드에서는 기존 FAQ 를 찾아 폼에 채운 뒤 draft 의 보강 필드만 덮어씀.
    */
+  const { id: queryId } = useQueryParams();
   useEffect(() => {
-    if (queryModal !== 'create' || modalOpen) return;
-    const prefill = draft
-      ? {
-          ...INITIAL_FORM,
-          category:    draft.category ?? INITIAL_FORM.category,
-          question:    draft.question ?? INITIAL_FORM.question,
-          answer:      draft.answer   ?? INITIAL_FORM.answer,
-        }
-      : INITIAL_FORM;
-    setEditTarget(null);
-    setForm(prefill);
-    setModalOpen(true);
+    if (!queryModal || modalOpen) return;
+    if (queryModal === 'create') {
+      const safeCategory =
+        draft?.category && CATEGORY_LABELS[draft.category]
+          ? draft.category
+          : INITIAL_FORM.category;
+      const prefill = draft
+        ? {
+            ...INITIAL_FORM,
+            category:    safeCategory,
+            question:    draft.question ?? INITIAL_FORM.question,
+            answer:      draft.answer   ?? INITIAL_FORM.answer,
+          }
+        : INITIAL_FORM;
+      setEditTarget(null);
+      setForm(prefill);
+      setModalOpen(true);
+      return;
+    }
+    if (queryModal === 'edit' && queryId && faqs.length > 0 && !loading) {
+      const target = faqs.find((f) => String(f.id) === String(queryId));
+      if (target) openEditModal(target, draft);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryModal]);
+  }, [queryModal, queryId, faqs, loading]);
 
   /** 카테고리 필터 변경 — 첫 페이지로 리셋 */
   function handleCategoryChange(value) {
@@ -142,16 +156,25 @@ export default function FaqTab() {
     setModalOpen(true);
   }
 
-  /** 수정 모달 오픈 */
-  function openEditModal(faq) {
+  /** 수정 모달 오픈 — 2026-04-28: aiDraft override 지원. */
+  function openEditModal(faq, aiDraft = null) {
     setEditTarget(faq);
-    setForm({
+    const base = {
       /* Backend SupportCategory enum 값을 그대로 사용. 기본값은 INITIAL_FORM 과 통일. */
       category: faq.category ?? 'GENERAL',
       question: faq.question ?? '',
       answer: faq.answer ?? '',
       isPublished: faq.isPublished ?? true,
-    });
+    };
+    if (aiDraft) {
+      // category 는 enum 검증 — 잘못된 값이면 무시하고 기존값 유지
+      if (aiDraft.category && CATEGORY_LABELS[aiDraft.category]) {
+        base.category = aiDraft.category;
+      }
+      if (aiDraft.question) base.question = aiDraft.question;
+      if (aiDraft.answer)   base.answer   = aiDraft.answer;
+    }
+    setForm(base);
     setModalOpen(true);
   }
 
@@ -177,7 +200,17 @@ export default function FaqTab() {
       setModalOpen(false);
       loadFaqs();
     } catch (err) {
-      alert(err.message || '처리 중 오류가 발생했습니다.');
+      // 2026-04-28 (길 A v3): Backend 400 ValidationError 의 field_errors 를 그대로 노출.
+      // 기존 "잘못된 입력입니다" 처럼 모호한 메시지로 LLM 의 enum mismatch 가 디버깅 안 되던 사고 방지.
+      const fieldErrors = err?.response?.data?.fieldErrors || err?.data?.fieldErrors;
+      if (fieldErrors && Array.isArray(fieldErrors) && fieldErrors.length > 0) {
+        const detail = fieldErrors
+          .map((fe) => `• ${fe.field}: ${fe.message}`)
+          .join('\n');
+        alert(`입력값을 확인해주세요.\n\n${detail}`);
+      } else {
+        alert(err.message || '처리 중 오류가 발생했습니다.');
+      }
     } finally {
       setFormLoading(false);
     }

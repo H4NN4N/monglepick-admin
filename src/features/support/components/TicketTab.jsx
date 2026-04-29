@@ -19,6 +19,8 @@ import {
   replyToTicket,
 } from '../api/supportApi';
 import StatusBadge from '@/shared/components/StatusBadge';
+import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
+import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
 
 /** 티켓 상태 옵션 */
 const STATUS_OPTIONS = [
@@ -89,6 +91,13 @@ const CATEGORY_LABELS = {
  *   aiAutoOpenedRef 로 중복 발동을 차단한다.
  */
 export default function TicketTab({ aiTicketId = null }) {
+  /*
+   * 2026-04-28 (길 A v3) — AI ticket_reply_draft prefill 처리.
+   * Agent 가 draft.content 를 보내면 useAiPrefill 이 location.state 에서 꺼낸다.
+   * aiTicketId 로 자동 상세 오픈 후 그 textarea 에 draft.content 를 주입.
+   */
+  const { draft: aiDraft, bannerText: aiBannerText } = useAiPrefill();
+
   /* ── 목록 상태 ── */
   const [tickets, setTickets] = useState([]);
   const [total, setTotal] = useState(0);
@@ -152,9 +161,14 @@ export default function TicketTab({ aiTicketId = null }) {
     if (target) {
       aiAutoOpenedRef.current = true;
       handleOpenDetail(target);
+      // 2026-04-28 (길 A v3): ticket_reply_draft 가 채운 content 를 답변 textarea 에 주입.
+      // handleOpenDetail 이 setReplyContent('') 로 비우는 동작을 한 직후 덮어씀.
+      if (aiDraft?.content) {
+        setReplyContent(aiDraft.content);
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiTicketId, tickets, loading]);
+  }, [aiTicketId, tickets, loading, aiDraft]);
 
   /** 티켓 상세 조회 */
   const loadDetail = useCallback(async (id) => {
