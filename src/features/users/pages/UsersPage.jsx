@@ -26,7 +26,7 @@
  * - 업적 코드/이름/설명/포인트 보상 CRUD
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import styled from 'styled-components';
 import UserTable from '../components/UserTable';
@@ -76,6 +76,51 @@ function actionToModalMode(action) {
   return action; // suspend | activate | role
 }
 
+/**
+ * Agent navigation tool 이 URL query 로 보내는 prefill 키들을 UserActionModal 의
+ * `aiDraft` 형태로 변환한다.
+ *
+ * Agent 측 URL 키 → UserActionModal aiDraft 키 매핑:
+ *  - pointAmount  (string|int) → amount (number)        — `points` 모드
+ *  - tokenAmount  (string|int) → count  (number)        — `grant-tokens` 모드
+ *  - reason       (string)     → reason (string passthrough)
+ *  - targetRole   (string)     → role   (string passthrough)
+ *  - suspendUntil (ISO date)   → durationDays (오늘 기준 잔여 일수, 1일 미만은 무시)
+ *
+ * 이 변환이 빠져 있어 "리워드 지급 폼 prefill 누락" 회귀(2026-04-29)가 발생했다.
+ * NavigationCard 가 `navigate(path)` 만 수행하고 location.state.draft 를 채우지 않으므로,
+ * URL 쿼리가 prefill 의 단일 진실 원본이다.
+ *
+ * @param {URLSearchParams} searchParams
+ * @returns {Object|null} 빈 draft 면 null
+ */
+function buildUrlDraft(searchParams) {
+  const pointAmount  = searchParams.get('pointAmount');
+  const tokenAmount  = searchParams.get('tokenAmount');
+  const reason       = searchParams.get('reason');
+  const targetRole   = searchParams.get('targetRole');
+  const suspendUntil = searchParams.get('suspendUntil');
+
+  const draft = {};
+  if (pointAmount != null && pointAmount !== '' && !Number.isNaN(Number(pointAmount))) {
+    draft.amount = Number(pointAmount);
+  }
+  if (tokenAmount != null && tokenAmount !== '' && !Number.isNaN(Number(tokenAmount))) {
+    draft.count = Number(tokenAmount);
+  }
+  if (reason)     draft.reason = reason;
+  if (targetRole) draft.role   = targetRole;
+  if (suspendUntil) {
+    /* ISO 날짜를 오늘 기준 잔여 일수로 환산. 잘못된 날짜·과거 시각은 무시. */
+    const t = Date.parse(suspendUntil);
+    if (!Number.isNaN(t)) {
+      const days = Math.ceil((t - Date.now()) / 86400000);
+      if (days > 0) draft.durationDays = days;
+    }
+  }
+  return Object.keys(draft).length > 0 ? draft : null;
+}
+
 export default function UsersPage() {
   /* ── URL 쿼리파라미터 / AI prefill ── */
   /**
@@ -92,6 +137,41 @@ export default function UsersPage() {
    * 두 훅 모두 useLocation 기반이라 동일한 search 문자열을 바라보므로 정합성 유지된다.
    */
   const [searchParams, setSearchParams] = useSearchParams();
+
+  /*
+   * 2026-04-29 리워드/이용권/정지 등 prefill 누락 회귀 픽스.
+   *
+   * Agent 의 navigation tool (goto_points_adjust / goto_token_grant / goto_user_suspend 등)은
+   * 폼 prefill 값을 URL query (pointAmount/tokenAmount/reason/...) 로 실어 보낸다. 그러나
+   * NavigationCard 는 `navigate(path)` 만 수행하므로 location.state.draft 가 비어 있고
+   * useAiPrefill 은 null 을 반환한다. 결과적으로 UserActionModal 에 prefill 값이
+   * 도달하지 않아 폼이 빈 채로 열리는 회귀.
+   *
+   * URL 쿼리 → aiDraft 로 변환해 누락분을 보완한다. cleanActionQueries 가 URL 키를
+   * 제거해도 한 번 캡처한 snapshot 은 유지(setSnapshot 을 next!=null 일 때만 호출)하여
+   * UserActionModal 입력 값이 리셋되지 않게 한다. 다음 AI 액션이 새 prefill 키를
+   * URL 에 실어보내면 그 시점에 snapshot 이 갱신된다.
+   */
+  const [urlDraftSnapshot, setUrlDraftSnapshot] = useState(() =>
+    buildUrlDraft(searchParams)
+  );
+  useEffect(() => {
+    const next = buildUrlDraft(searchParams);
+    if (next !== null) setUrlDraftSnapshot(next);
+    // null 이어도 기존 snapshot 유지 — cleanup 후에도 모달이 prefill 을 그대로 보유.
+  }, [searchParams]);
+
+  /**
+   * UserActionModal 이 실제로 사용할 aiDraft.
+   *  - 1순위: form_prefill SSE 로 들어온 location.state.draft (useAiPrefill)
+   *  - 2순위: URL 쿼리에서 변환한 snapshot (buildUrlDraft)
+   * 메모이제이션으로 reference equality 를 유지해 UserActionModal 의 useEffect 가
+   * 불필요하게 재발화하는 것을 방지.
+   */
+  const effectiveAiDraft = useMemo(
+    () => (isAiGenerated ? draft : null) || urlDraftSnapshot,
+    [isAiGenerated, draft, urlDraftSnapshot]
+  );
 
   /** 현재 활성 탭 */
   const [activeTab, setActiveTab] = useState('list');
@@ -235,9 +315,10 @@ export default function UsersPage() {
               onInitialActionConsumed={consumeInitialAction}
               /**
                * AI draft 초기값 — UserActionModal 폼 필드에 주입.
-               * source='ai_assistant' 인 경우에만 useAiPrefill 이 반환하므로 isAiGenerated 체크.
+               * 1순위 form_prefill SSE state.draft (useAiPrefill), 2순위 URL 쿼리(buildUrlDraft).
+               * 2026-04-29: navigation tool prefill 누락 회귀 차단을 위해 URL 변환 snapshot 추가.
                */
-              aiDraft={isAiGenerated ? draft : null}
+              aiDraft={effectiveAiDraft}
             />
           )}
         </TwoPane>
