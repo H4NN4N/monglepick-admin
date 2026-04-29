@@ -24,7 +24,7 @@
  * @param {boolean}  [props.aiDraftFromAssistant] - true 이면 모달 상단에 "AI 채움" 배너 노출
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import {
   updateUserRole,
@@ -71,15 +71,26 @@ export default function UserActionModal({
   /** 에러 메시지 */
   const [error, setError] = useState(null);
 
+  /*
+   * aiDraft 캡처용 ref — useEffect deps 에 aiDraft 를 두면 부모(UsersPage) 의
+   * URL cleanup 으로 aiDraft 가 null 로 바뀌는 순간 다시 발화되어 사용자가
+   * 입력 중이던 폼이 빈 값으로 리셋된다 (2026-04-29 회귀). 모달이 새로 열리는
+   * 시점의 최신 aiDraft 만 사용하도록 ref 에 보관해 deps 를 안정화한다.
+   */
+  const aiDraftRef = useRef(aiDraft);
+  useEffect(() => { aiDraftRef.current = aiDraft; }, [aiDraft]);
+
   /**
    * 모달이 열릴 때마다 폼 초기화.
    * 역할 변경 모드에서는 현재 사용자 역할을 기본값으로 설정.
+   *
+   * deps 에서 aiDraft 제외 — 위 ref 로 최신 값을 읽으므로 Modal open 시 1회만 초기화한다.
    */
   useEffect(() => {
     if (isOpen) {
       // v3 Phase G: aiDraft 가 있으면 기본값 대신 draft 값으로 초기화.
       // mode 별 draft 필드가 다르므로 각각 분기 — 누락 필드는 기존 기본값 유지.
-      const draft = aiDraft || {};
+      const draft = aiDraftRef.current || {};
       setSelectedRole(draft.role ?? user?.userRole ?? 'USER');
       setSuspendReason(draft.reason ?? '');
       setDurationDays(
@@ -111,7 +122,9 @@ export default function UserActionModal({
           .finally(() => setLoading(false));
       }
     }
-  }, [isOpen, user, mode, aiDraft]);
+    // aiDraft 제외 — aiDraftRef 로 최신값 사용. 부모 cleanup 에 의한 폼 리셋 차단.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, user, mode]);
 
   /** 모달 외부 클릭 시 닫기 */
   function handleOverlayClick(e) {
