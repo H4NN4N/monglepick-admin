@@ -250,6 +250,58 @@ export function fetchAiQuotaStats() {
 }
 
 // ══════════════════════════════════════════════
+// AI 서비스 분석 V2 — 전면 재설계 (2026-04-29)
+//
+// 백엔드 9개 신규 EP 와 매핑.
+// (V1 fetcher 4개는 보존 — breaking change 없이 점진 전환.)
+// ══════════════════════════════════════════════
+
+/** AI 서비스 요약 KPI — "오늘 한눈에" 4개 핵심 지표 */
+export function fetchAiSummary() {
+  return backendApi.get(`${STATS}/ai-service/summary`);
+}
+
+/** 에이전트별 호출량 일별 추이 — 멀티 라인 차트 */
+export function fetchAgentTrends(params) {
+  return backendApi.get(`${STATS}/ai-service/agent-trends`, { params });
+}
+
+/** 에이전트별 KPI 요약 — 4개 카드 (챗·추천·고객센터·퀴즈) */
+export function fetchAgentSummary() {
+  return backendApi.get(`${STATS}/ai-service/agent-summary`);
+}
+
+/** 응답시간 분포 — p50/p95/p99 + 일별 시계열 (추천 엔진 한정) */
+export function fetchAiLatency(params) {
+  return backendApi.get(`${STATS}/ai-service/latency`, { params });
+}
+
+/** 모델 버전별 비교 — model_version 별 호출수/평균점수/응답시간/CTR */
+export function fetchAiModelComparison() {
+  return backendApi.get(`${STATS}/ai-service/model-comparison`);
+}
+
+/** 추천 펀넬 — 5단계 (recommendation_impact 기반) */
+export function fetchAiRecommendationFunnel(params) {
+  return backendApi.get(`${STATS}/ai-service/recommendation-funnel`, { params });
+}
+
+/** 고객센터 자동화율 — 추이 + hop 분포 */
+export function fetchAiSupportAutomation(params) {
+  return backendApi.get(`${STATS}/ai-service/support-automation`, { params });
+}
+
+/** AI 의도 분포 V2 — chat / support 두 채널 분리 */
+export function fetchAiIntentDistributionV2() {
+  return backendApi.get(`${STATS}/ai-service/intents-v2`);
+}
+
+/** AI 쿼터 현황 V2 — 6 등급 차등 기준 + 등급별 분포 */
+export function fetchAiQuotaStatsV2() {
+  return backendApi.get(`${STATS}/ai-service/quota-v2`);
+}
+
+// ══════════════════════════════════════════════
 // 커뮤니티 분석
 // ══════════════════════════════════════════════
 

@@ -100,17 +100,28 @@ export default function DashboardPage() {
     }
     setKpiLoading(false);
 
-    /* 추이 처리 */
+    /*
+     * 추이 처리.
+     * 백엔드는 TrendsResponse(days, trends:[…]) 객체로 반환하므로 .trends 필드를 추출한다.
+     * 과거 호환을 위해 응답이 이미 배열인 경우(임시 mock 등)도 그대로 사용한다.
+     */
     if (trendsResult.status === 'fulfilled') {
-      setTrendsData(Array.isArray(trendsResult.value) ? trendsResult.value : []);
+      const v = trendsResult.value;
+      const list = Array.isArray(v) ? v : Array.isArray(v?.trends) ? v.trends : [];
+      setTrendsData(list);
     } else {
       setTrendsError(trendsResult.reason?.message ?? '추이 데이터를 불러올 수 없습니다.');
     }
     setTrendsLoading(false);
 
-    /* 최근 활동 처리 */
+    /*
+     * 최근 활동 처리.
+     * 백엔드는 RecentActivitiesResponse(activities:[…]) 객체로 반환하므로 .activities 필드를 추출한다.
+     */
     if (activityResult.status === 'fulfilled') {
-      setActivityData(Array.isArray(activityResult.value) ? activityResult.value : []);
+      const v = activityResult.value;
+      const list = Array.isArray(v) ? v : Array.isArray(v?.activities) ? v.activities : [];
+      setActivityData(list);
     } else {
       setActivityError(activityResult.reason?.message ?? '최근 활동을 불러올 수 없습니다.');
     }
