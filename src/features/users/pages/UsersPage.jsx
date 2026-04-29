@@ -11,6 +11,13 @@
  *    해당 action 모달을 자동 오픈 (userId 도 함께 있어야 동작)
  *  - location.state.draft 가 있으면 UserDetailPanel → UserActionModal 에 초기값 주입
  *
+ * 2026-04-29: AI 어시스턴트 navigation 으로 도착한 후 모달 자동 오픈이 끝나면
+ *   URL 의 액션 관련 쿼리(action/reason/suspendUntil/targetRole/...)를 즉시 정리한다.
+ *   정리하지 않으면 새로고침 시 같은 URL 로 useQueryParams 가 재계산되어
+ *   pendingAction 이 다시 truthy 가 되고 → UserDetailPanel useEffect 가
+ *   초기 모달을 또 열어버리는 무한 재오픈 버그가 발생한다.
+ *   userId 는 보존하여 사용자 상세 패널 자체는 새로고침 후에도 유지되도록 한다.
+ *
  * 사용자 목록 서브탭:
  * - 2단 레이아웃 구조 (좌: UserTable, 우: UserDetailPanel)
  * - 선택된 사용자가 없으면 1단으로 축소
@@ -19,7 +26,8 @@
  * - 업적 코드/이름/설명/포인트 보상 CRUD
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import styled from 'styled-components';
 import UserTable from '../components/UserTable';
 import UserDetailPanel from '../components/UserDetailPanel';
@@ -35,6 +43,28 @@ const TABS = [
 
 /** 유효한 action 값 집합 (UserActionModal mode 와 매핑) */
 const VALID_ACTIONS = new Set(['suspend', 'activate', 'role', 'points-adjust', 'tokens-grant']);
+
+/**
+ * AI 어시스턴트 navigation 으로 들어온 URL 쿼리 중
+ * 모달 자동 오픈/prefill 에 사용되고 나면 즉시 제거해야 하는 키 목록.
+ *
+ * userId 는 보존(상세 패널이 사라지지 않도록).
+ * 그 외 액션·prefill 관련 쿼리는 새로고침 시 모달 재오픈을 막기 위해 모두 제거.
+ *  - action          : 모달 모드 (suspend / activate / role / points-adjust / tokens-grant)
+ *  - reason          : 정지·복구·역할변경·포인트조정·이용권발급 공통 사유
+ *  - suspendUntil    : 임시 정지 종료일 (goto_user_suspend prefill)
+ *  - targetRole      : 역할 변경 시 변경 대상 역할 (goto_user_role prefill)
+ *  - pointAmount     : 수동 포인트 조정 변동량 (goto_user_points_adjust prefill)
+ *  - tokenAmount     : 수동 AI 이용권 발급 수량 (goto_user_tokens_grant prefill)
+ */
+const ACTION_QUERY_KEYS = [
+  'action',
+  'reason',
+  'suspendUntil',
+  'targetRole',
+  'pointAmount',
+  'tokenAmount',
+];
 
 /**
  * URL ?action= 값을 UserActionModal 의 mode 값으로 변환.
@@ -56,6 +86,13 @@ export default function UsersPage() {
   const { userId: queryUserId, action: queryAction } = useQueryParams();
   const { draft, isAiGenerated } = useAiPrefill();
 
+  /**
+   * 액션 관련 쿼리 cleanup 용 setter.
+   * useQueryParams 는 read-only 파싱 훅이므로, 쓰기는 react-router-dom 의 useSearchParams 를 함께 사용.
+   * 두 훅 모두 useLocation 기반이라 동일한 search 문자열을 바라보므로 정합성 유지된다.
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+
   /** 현재 활성 탭 */
   const [activeTab, setActiveTab] = useState('list');
 
@@ -74,6 +111,39 @@ export default function UsersPage() {
     queryUserId && VALID_ACTIONS.has(queryAction) ? queryAction : null
   );
 
+  /**
+   * URL search 에서 ACTION_QUERY_KEYS 에 해당하는 키를 제거한다.
+   * userId 는 그대로 보존하여 상세 패널은 유지하되,
+   * 모달 자동 오픈을 트리거하는 쿼리만 정리해 새로고침 시 모달 재오픈을 차단한다.
+   *
+   * setSearchParams 는 replace:true 로 호출하여 browser history stack 을 오염시키지 않는다.
+   * 이미 정리할 키가 하나도 없으면 setSearchParams 를 호출하지 않아 불필요한 리렌더를 줄인다.
+   */
+  const cleanActionQueries = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    let changed = false;
+    for (const key of ACTION_QUERY_KEYS) {
+      if (next.has(key)) {
+        next.delete(key);
+        changed = true;
+      }
+    }
+    if (changed) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  /**
+   * UserDetailPanel 이 initialAction 을 소비한 직후 호출되는 콜백.
+   *  - 컴포넌트 state(pendingAction) 를 비우고
+   *  - URL 의 액션 관련 쿼리(action / reason / suspendUntil / targetRole / pointAmount / tokenAmount)를 제거
+   * 두 가지를 함께 처리해야 새로고침 시 모달 재오픈이 발생하지 않는다.
+   */
+  const consumeInitialAction = useCallback(() => {
+    setPendingAction(null);
+    cleanActionQueries();
+  }, [cleanActionQueries]);
+
   /** UserTable onSelectUser 콜백 */
   function handleSelectUser(userId) {
     setSelectedUserId(userId);
@@ -85,6 +155,9 @@ export default function UsersPage() {
   function handleCloseDetail() {
     setSelectedUserId(null);
     setPendingAction(null);
+    /* 상세를 닫는 순간에도 잔여 액션 쿼리는 제거. (사용자가 X 버튼으로 모달이 아닌
+       상세 패널 자체를 닫는 흐름에서도 새로고침 모달 재오픈을 차단) */
+    cleanActionQueries();
   }
 
   /**
@@ -159,7 +232,7 @@ export default function UsersPage() {
                * 소비 후 null 로 초기화하여 재오픈 방지.
                */
               initialAction={pendingAction ? actionToModalMode(pendingAction) : null}
-              onInitialActionConsumed={() => setPendingAction(null)}
+              onInitialActionConsumed={consumeInitialAction}
               /**
                * AI draft 초기값 — UserActionModal 폼 필드에 주입.
                * source='ai_assistant' 인 경우에만 useAiPrefill 이 반환하므로 isAiGenerated 체크.
