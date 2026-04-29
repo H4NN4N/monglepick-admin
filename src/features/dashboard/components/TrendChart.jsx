@@ -1,7 +1,7 @@
 /**
  * 추이 차트 컴포넌트.
  *
- * Recharts ComposedChart를 사용해 신규 가입 + 활성 사용자(Line)와
+ * Recharts ComposedChart를 사용해 신규 가입 + AI 채팅 요청(Line)과
  * 결제 금액(Bar)을 하나의 차트에 표시.
  *
  * 기능:
@@ -10,9 +10,13 @@
  * - ResponsiveContainer로 반응형 처리
  * - 결제 금액은 오른쪽 Y축(YAxis yAxisId="right")에 표시
  *
+ * 데이터 매핑 — 백엔드 DashboardDto.DailyTrend 와 1:1 일치:
+ *   { date, newUsers, paymentAmount, chatRequests }
+ * (기존 activeUsers 는 백엔드 미제공 필드여서 chatRequests 로 교체. 2026-04-29)
+ *
  * @param {Object}   props
- * @param {Array}    props.data    - fetchTrends() 응답 배열
- *                                  [{ date, newUsers, activeUsers, paymentAmount }]
+ * @param {Array}    props.data    - fetchTrends() 응답 .trends 배열
+ *                                  [{ date, newUsers, paymentAmount, chatRequests }]
  * @param {boolean}  props.loading - 로딩 여부
  * @param {number}   props.days    - 현재 선택된 기간 (7 | 14 | 30)
  * @param {Function} props.onDaysChange - 기간 변경 콜백 (days: number) => void
@@ -76,8 +80,25 @@ function formatUserTooltip(value) {
 }
 
 /**
+ * Tooltip 채팅 건수 포맷.
+ * 843 → "843건"
+ *
+ * @param {number} value
+ * @returns {string}
+ */
+function formatChatTooltip(value) {
+  if (value === null || value === undefined) return '-';
+  return `${Number(value).toLocaleString()}건`;
+}
+
+/**
  * 커스텀 Tooltip 렌더러.
  * Recharts Tooltip의 content prop으로 사용.
+ *
+ * dataKey 별 단위 분기:
+ *   paymentAmount → 원
+ *   chatRequests  → 건
+ *   newUsers      → 명
  */
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload || payload.length === 0) return null;
@@ -85,18 +106,23 @@ function CustomTooltip({ active, payload, label }) {
   return (
     <TooltipBox>
       <TooltipDate>{label}</TooltipDate>
-      {payload.map((entry) => (
-        <TooltipRow key={entry.dataKey}>
-          <TooltipDot style={{ background: entry.color }} />
-          <TooltipLabel>{entry.name}</TooltipLabel>
-          <TooltipValue>
-            {/* 결제 금액(paymentAmount)은 원 단위, 나머지는 명 단위 */}
-            {entry.dataKey === 'paymentAmount'
-              ? formatPaymentTooltip(entry.value)
-              : formatUserTooltip(entry.value)}
-          </TooltipValue>
-        </TooltipRow>
-      ))}
+      {payload.map((entry) => {
+        let formatted;
+        if (entry.dataKey === 'paymentAmount') {
+          formatted = formatPaymentTooltip(entry.value);
+        } else if (entry.dataKey === 'chatRequests') {
+          formatted = formatChatTooltip(entry.value);
+        } else {
+          formatted = formatUserTooltip(entry.value);
+        }
+        return (
+          <TooltipRow key={entry.dataKey}>
+            <TooltipDot style={{ background: entry.color }} />
+            <TooltipLabel>{entry.name}</TooltipLabel>
+            <TooltipValue>{formatted}</TooltipValue>
+          </TooltipRow>
+        );
+      })}
     </TooltipBox>
   );
 }
@@ -207,12 +233,16 @@ export default function TrendChart({ data, loading, days, onDaysChange }) {
                 barSize={days === 7 ? 32 : days === 14 ? 20 : 12}
               />
 
-              {/* 활성 사용자 Line */}
+              {/*
+               * AI 채팅 요청 Line.
+               * 백엔드 DailyTrend.chatRequests — chat_session_archive 의 일별 created_at 카운트.
+               * 단위가 "건"이지만 명/건 모두 작은 단위 정수라 신규가입과 같은 왼쪽 Y축 공유.
+               */}
               <Line
                 yAxisId="left"
                 type="monotone"
-                dataKey="activeUsers"
-                name="활성 사용자"
+                dataKey="chatRequests"
+                name="AI 채팅"
                 stroke={successColor}
                 strokeWidth={2}
                 dot={{ r: 3, fill: successColor }}

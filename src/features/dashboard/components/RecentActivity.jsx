@@ -12,8 +12,9 @@
  * - POST      : MdArticle,    default  (#94a3b8)
  *
  * @param {Object}  props
- * @param {Array}   props.data    - fetchRecentActivities() 응답 배열
- *                                  [{ id, type, description, createdAt }]
+ * @param {Array}   props.data    - DashboardPage 가 응답 객체에서 추출한 .activities 배열
+ *                                  [{ type, description, targetId, createdAt }]
+ *                                  (백엔드 DashboardDto.ActivityItem 과 1:1 매칭)
  * @param {boolean} props.loading - 로딩 여부
  */
 
@@ -161,12 +162,18 @@ export default function RecentActivity({ data, loading, onRefresh }) {
         ) : activities.length === 0 ? (
           <EmptyMsg>최근 활동이 없습니다.</EmptyMsg>
         ) : (
-          activities.map((activity) => {
+          activities.map((activity, idx) => {
             const meta = TYPE_META[activity.type] ?? FALLBACK_META;
             const Icon = meta.icon;
+            /*
+             * 안정적인 React key 합성.
+             * 백엔드 ActivityItem 은 id 가 없고 (type, targetId, createdAt) 조합이 사실상 고유하다.
+             * targetId 가 누락된 경우(폴백)에도 idx 를 함께 섞어 충돌을 방지한다.
+             */
+            const rowKey = `${activity.type ?? 'NA'}-${activity.targetId ?? 'NA'}-${activity.createdAt ?? idx}`;
 
             return (
-              <ActivityRow key={activity.id}>
+              <ActivityRow key={rowKey}>
                 {/* 타입별 아이콘 */}
                 <IconWrapper $bg={meta.color}>
                   <Icon size={16} color={meta.iconColor} />

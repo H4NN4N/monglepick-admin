@@ -91,14 +91,20 @@ export const PAYMENT_ADMIN_ENDPOINTS = {
 export const LOTTERY_ADMIN_ENDPOINTS = {
   /** 회차 페이징 — GET (query: status?, page, size, sort) */
   CYCLES: `${ADMIN}/lottery/cycles`,
+  /** 회차 강제 생성 — POST (body: { cycleYearMonth, winnerCount? }) (2026-04-29) */
+  CYCLE_CREATE: `${ADMIN}/lottery/cycles`,
   /** 회차 상세 — GET (path: lotteryId) */
   CYCLE_DETAIL: (lotteryId) => `${ADMIN}/lottery/cycles/${lotteryId}`,
   /** 회차 수정 — PATCH (path: lotteryId, body: { winnerCount?, notes? }) */
   CYCLE_UPDATE: (lotteryId) => `${ADMIN}/lottery/cycles/${lotteryId}`,
   /** 수동 추첨 — POST (path: lotteryId, body 없음) */
   CYCLE_DRAW: (lotteryId) => `${ADMIN}/lottery/cycles/${lotteryId}/draw`,
-  /** 응모자 명단 — GET (path: lotteryId, query: status?, page, size) */
+  /** DRAWING → PENDING 강제 복구 — POST (path: lotteryId) (2026-04-29) */
+  CYCLE_RESET: (lotteryId) => `${ADMIN}/lottery/cycles/${lotteryId}/reset`,
+  /** 응모자 명단 — GET (path: lotteryId, query: status?, keyword?, page, size) */
   CYCLE_ENTRIES: (lotteryId) => `${ADMIN}/lottery/cycles/${lotteryId}/entries`,
+  /** 응모자 CSV export — GET (path: lotteryId, query: status?) (2026-04-29) */
+  CYCLE_ENTRIES_EXPORT: (lotteryId) => `${ADMIN}/lottery/cycles/${lotteryId}/entries/export`,
 };
 
 /* ── 고객센터 관리 (윤형주) ──
