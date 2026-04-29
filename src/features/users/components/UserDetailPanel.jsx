@@ -36,7 +36,7 @@
  * @param {Function} props.onRefresh  - 외부 목록 갱신 콜백 (액션 완료 후 호출)
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import {
   MdClose,
@@ -178,6 +178,20 @@ export default function UserDetailPanel({
   const [modalMode, setModalMode] = useState(null);
 
   /**
+   * AI 어시스턴트가 보낸 initialAction 을 이미 소비했는지 여부.
+   *
+   * 부모(UsersPage) 가 onInitialActionConsumed 시점에 URL 쿼리(`?action=*`)를 cleanup 하면
+   * pendingAction 도 함께 null 로 떨어져 initialAction prop 이 자연 차단되지만,
+   * 그 절차 중간에 detail 이 다시 로드되거나 prop 이 동일 값으로 들어오면 effect 가
+   * 한 번 더 트리거될 수 있다. 그 가능성을 차단하기 위해 컴포넌트 인스턴스 단위로
+   * "이미 한 번 소비했다" 플래그를 ref 에 둔다.
+   *
+   * userId 가 바뀌면 새로운 사용자에 대한 initialAction 을 다시 받을 수 있어야 하므로
+   * 별도 effect 에서 ref 를 false 로 리셋한다.
+   */
+  const initialActionConsumedRef = useRef(false);
+
+  /**
    * 사용자 상세 정보 조회.
    * userId 변경 시 기존 상태를 초기화하고 새로 요청한다.
    */
@@ -203,15 +217,36 @@ export default function UserDetailPanel({
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
 
-  /* 상세 로드 완료 후 initialAction 이 있으면 해당 모달 자동 오픈 (AI 어시스턴트 연동) */
+  /*
+   * userId 가 바뀌면 새 사용자에 대한 initialAction 을 새로 받을 수 있어야 하므로
+   * 소비 플래그를 리셋한다. (다른 사용자 선택 시 AI 가 보낸 새 액션이 차단되지 않도록.)
+   */
   useEffect(() => {
-    if (detail && initialAction) {
+    initialActionConsumedRef.current = false;
+  }, [userId]);
+
+  /*
+   * 상세 로드 완료 후 initialAction 이 있으면 해당 모달 자동 오픈 (AI 어시스턴트 연동).
+   *
+   * 가드 조건:
+   *  1) detail 이 로드되어 있어야 함 (사용자 정보 없이 모달을 열면 안 됨)
+   *  2) initialAction 이 truthy 여야 함 (부모가 URL cleanup 후 null 로 비우면 자연 차단됨)
+   *  3) 이번 사용자(userId) 에 대해 한 번도 소비하지 않았어야 함 (ref 로 이중 방어)
+   *
+   * 소비 직후 ref 를 true 로 잠그고 onInitialActionConsumed 를 호출해 부모가
+   * URL 액션 쿼리를 정리하도록 한다. 이렇게 하면 detail 이 재로드되거나 effect 가
+   * 다시 실행돼도 모달이 다시 열리지 않는다.
+   */
+  useEffect(() => {
+    if (detail && initialAction && !initialActionConsumedRef.current) {
+      initialActionConsumedRef.current = true;
       setModalMode(initialAction);
       onInitialActionConsumed?.();
     }
-  // detail.userId 기준으로 1회만 실행 — initialAction/onInitialActionConsumed 는 렌더마다 변하지 않음
+  // detail.userId / initialAction 변경 시점에 평가. onInitialActionConsumed 는 부모가
+  // useCallback 으로 메모이즈하지 않더라도 ref 가드로 중복 실행이 차단되므로 안전.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail?.userId]);
+  }, [detail?.userId, initialAction]);
 
   /**
    * 미니 탭 데이터 로딩.
