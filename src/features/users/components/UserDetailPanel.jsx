@@ -72,6 +72,10 @@ function formatDate(dateStr) {
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function getActivityDescription(item) {
+  return item?.description ?? item?.content ?? item?.title ?? '-';
+}
+
 /** 계정 상태 → StatusBadge 매핑 */
 const STATUS_BADGE = {
   ACTIVE:    { status: 'success', label: '활성' },
@@ -305,7 +309,7 @@ export default function UserDetailPanel({
               id: `activity-${it.id ?? idx}-${it.createdAt ?? idx}`,
               source: 'activity',
               title: type,
-              description: it.description ?? it.content ?? '-',
+              description: getActivityDescription(it),
               createdAt: it.createdAt,
             });
           });
@@ -823,7 +827,7 @@ export default function UserDetailPanel({
                         <>
                           <TabItemLeft>
                             <TabItemType>{item.type ?? item.activityType ?? '-'}</TabItemType>
-                            <TabItemDesc>{item.description ?? item.content ?? '-'}</TabItemDesc>
+                            <TabItemDesc>{getActivityDescription(item)}</TabItemDesc>
                           </TabItemLeft>
                           <TabItemDate>{formatDate(item.createdAt)}</TabItemDate>
                         </>
