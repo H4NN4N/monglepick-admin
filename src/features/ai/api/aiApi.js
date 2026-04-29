@@ -32,6 +32,24 @@ export function fetchQuizHistory(params) {
   return backendApi.get(AI_ADMIN_ENDPOINTS.QUIZ_HISTORY, { params });
 }
 
+/**
+ * AI 퀴즈 운영 통계 조회 (Backend, 2026-04-28 신규).
+ *
+ * <p>quiz_generation 에이전트의 운영 가시성 KPI 를 한 번에 가져온다.
+ * GenerationHistory 상단 QuizStatsCard 가 화면 진입 시 1회 호출.</p>
+ *
+ * @returns {Promise<Object>} 응답 형태:
+ *   - totalToday    {number}  오늘(서버 LocalDate) 신규 생성 건수
+ *   - total7d       {number}  최근 7일 누적
+ *   - total30d      {number}  최근 30일 누적
+ *   - byStatus      {Object}  { PENDING, APPROVED, REJECTED, PUBLISHED } 4 키
+ *   - approvalRate  {number}  검수 통과율 [0.0~1.0], 모수 0 시 0.0
+ *   - dailyTrend14d {Array}   [{ date: 'YYYY-MM-DD', count: number }, ...] 14개
+ */
+export function fetchQuizStats() {
+  return backendApi.get(AI_ADMIN_ENDPOINTS.QUIZ_STATS);
+}
+
 /* 2026-04-08: generateReview / fetchReviewHistory 제거 — AI 리뷰 생성 기능 삭제 */
 
 /* ── 챗봇 로그 ── */

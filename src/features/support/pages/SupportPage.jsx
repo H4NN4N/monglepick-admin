@@ -26,14 +26,16 @@ import NoticeTab from '../components/NoticeTab';
 import FaqTab from '../components/FaqTab';
 import HelpTab from '../components/HelpTab';
 import TicketTab from '../components/TicketTab';
+import ChatbotLogTab from '../components/ChatbotLogTab';
 import { useQueryParams } from '@/shared/hooks/useQueryParams';
 
-/** 서브탭 정의 */
+/** 서브탭 정의 — 2026-04-28: 챗봇 로그 탭 추가 */
 const TABS = [
   { id: 'notice',    label: '공지사항' },
   { id: 'faq',       label: 'FAQ' },
   { id: 'help',      label: '도움말' },
   { id: 'ticket',    label: '상담 티켓' },
+  { id: 'chatlog',   label: '챗봇 로그' },
 ];
 
 /** 유효한 탭 ID 집합 */
@@ -100,6 +102,9 @@ export default function SupportPage() {
         </TabContent>
         <TabContent $visible={activeTab === 'ticket'}>
           {activeTab === 'ticket' && <TicketTab aiTicketId={aiTicketId} />}
+        </TabContent>
+        <TabContent $visible={activeTab === 'chatlog'}>
+          {activeTab === 'chatlog' && <ChatbotLogTab />}
         </TabContent>
       </TabPanel>
     </Wrapper>

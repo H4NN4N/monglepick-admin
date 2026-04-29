@@ -93,6 +93,37 @@ export default function useAdminAssistant() {
   }, []);
 
   /**
+   * 2026-04-28 (길 A v3 보강) — dedup_key 기반 upsert.
+   *
+   * 같은 도구가 같은 인자로 다시 호출됐을 때 (Agent 의 ReAct 루프가 finish_task 를
+   * 못 부르고 또 같은 stats 를 호출하는 사고) 화면에 카드가 누적되지 않도록 한다.
+   *
+   * - dedupKey 가 있으면 기존 entry 와 같은 key 를 찾아 **교체**, 없으면 push.
+   * - dedupKey 가 없으면 (구형 payload) push 만 — 하위호환.
+   *
+   * Agent 의 _build_table_payload / _build_chart_payload 가 payload.dedup_key 를
+   * 항상 채우도록 변경됨 (graph.py 2026-04-28).
+   */
+  const upsertTrace = useCallback((id, key, dedupKey, entry) => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m;
+        const existing = m[key] || [];
+        if (!dedupKey) {
+          return { ...m, [key]: [...existing, entry] };
+        }
+        const idx = existing.findIndex((x) => x?.dedup_key === dedupKey);
+        if (idx === -1) {
+          return { ...m, [key]: [...existing, entry] };
+        }
+        const next = existing.slice();
+        next[idx] = entry;
+        return { ...m, [key]: next };
+      })
+    );
+  }, []);
+
+  /**
    * 가장 최근 tool_call 이 가리키는 항목에 `decision` 필드를 주입.
    * ToolCallTrace 가 'approved' / 'rejected' 배지를 그리는 근거.
    */
@@ -156,17 +187,16 @@ export default function useAdminAssistant() {
       },
       onTableData: (payload) => {
         // Phase 4 (2026-04-27): tool_executor 직후 list/Page 결과가 임계행수 이상이면 도착.
-        // report intent ReAct 루프에서 여러 번 발행될 수 있어 `tables` 배열로 append.
-        // TableDataCard 가 각 element 를 카드 한 장씩 렌더.
+        // 2026-04-28 (길 A v3): payload.dedup_key 로 upsert — 같은 tool+args 재호출 시
+        // 카드 1장으로 유지. dedup_key 가 없으면(구형) push.
         if (!payload) return;
-        appendTrace(assistantId, 'tables', payload);
+        upsertTrace(assistantId, 'tables', payload.dedup_key, payload);
       },
       onChartData: (payload) => {
-        // Phase 4 후속 (2026-04-28): 등록된 시계열 stats tool (stats_trends 등) 호출 후 도착.
-        // table_data 와 동시에 발행 가능. ReAct 루프에서 여러 차트 누적 → `charts[]`.
-        // ChartDataCard 가 recharts 라인/막대 차트로 렌더.
+        // Phase 4 후속 (2026-04-28): 등록된 시계열 stats tool 호출 후 도착.
+        // 2026-04-28 (길 A v3): dedup_key 기반 upsert.
         if (!payload) return;
-        appendTrace(assistantId, 'charts', payload);
+        upsertTrace(assistantId, 'charts', payload.dedup_key, payload);
       },
       onDone: () => {
         updateAssistant(assistantId, { status: 'done' });
@@ -183,7 +213,7 @@ export default function useAdminAssistant() {
         setCurrentPhase('');
       },
     }),
-    [appendTrace, updateAssistant],
+    [appendTrace, updateAssistant, upsertTrace],
   );
 
   /**

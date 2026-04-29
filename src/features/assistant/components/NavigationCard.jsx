@@ -40,9 +40,25 @@ export default function NavigationCard({ data }) {
     tool_name,
   } = data;
 
-  /** 단건 이동 핸들러 */
+  /**
+   * 단건 이동 핸들러.
+   *
+   * 2026-04-28 (길 A v3): 빈 path 일 때 silent return 하던 것을 토스트/alert 로
+   * 명시 안내. 이전에는 잘못된 navigate tool 매칭 → path 가 비어 도착해도 사용자는
+   * "버튼이 안 먹는다" 라고만 체감. 이제는 명확한 에러 메시지를 띄운다.
+   */
   function handleNavigate(path) {
-    if (!path) return;
+    if (!path) {
+      // alert 는 운영 환경에서 거슬릴 수 있으므로 console + 빈 path 안내 줄을 별도 표시.
+      // 운영 환경에서 Toast 컴포넌트가 도입되면 그 쪽으로 옮기는 것이 좋다.
+      // eslint-disable-next-line no-console
+      console.error('[NavigationCard] target_path 가 비어 있어 이동할 수 없습니다.', { tool_name });
+      alert(
+        '이동할 화면 경로가 없어요.\n다시 한 번 어떤 작업을 원하시는지 구체적으로 말씀해 주세요.\n' +
+        '(예: "공지 1번 화면으로 이동", "chulsoo 정지 화면으로 이동")'
+      );
+      return;
+    }
     navigate(path);
   }
 
