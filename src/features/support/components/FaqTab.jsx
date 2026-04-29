@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import styled from 'styled-components';
 import { MdAdd, MdEdit, MdDelete, MdRefresh } from 'react-icons/md';
 import { fetchFaqs, createFaq, updateFaq, deleteFaq } from '../api/supportApi';
@@ -67,6 +68,25 @@ export default function FaqTab() {
    */
   const { modal: queryModal } = useQueryParams();
   const { draft, bannerText } = useAiPrefill();
+  /*
+   * 2026-04-29 회귀 픽스 — 모달 미닫힘 차단.
+   * 아래 useEffect deps 가 `[queryModal, queryId, faqs, loading]` 라서
+   * 저장 후 loadFaqs() 가 faqs 를 갱신하면 effect 가 재실행되고, URL 에
+   * `?modal=create` 가 남아있는 한 modal 을 다시 열어버린다. 한 번 소비한
+   * modal/id 쿼리는 즉시 제거해 재실행을 차단한다.
+   */
+  const [, setSearchParams] = useSearchParams();
+  const consumePrefillQuery = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('modal');
+        next.delete('id');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
 
   /* ── 목록 상태 ── */
   const [faqs, setFaqs] = useState([]);
@@ -134,11 +154,15 @@ export default function FaqTab() {
       setEditTarget(null);
       setForm(prefill);
       setModalOpen(true);
+      consumePrefillQuery();
       return;
     }
     if (queryModal === 'edit' && queryId && faqs.length > 0 && !loading) {
       const target = faqs.find((f) => String(f.id) === String(queryId));
-      if (target) openEditModal(target, draft);
+      if (target) {
+        openEditModal(target, draft);
+        consumePrefillQuery();
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryModal, queryId, faqs, loading]);

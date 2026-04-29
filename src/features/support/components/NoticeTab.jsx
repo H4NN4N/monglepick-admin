@@ -20,6 +20,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import styled from 'styled-components';
 import { MdAdd, MdEdit, MdDelete, MdRefresh, MdPushPin, MdToggleOn, MdToggleOff } from 'react-icons/md';
 import { fetchNotices, createNotice, updateNotice, deleteNotice, updateNoticeActive } from '../api/supportApi';
@@ -101,6 +102,26 @@ export default function NoticeTab() {
    */
   const { modal: queryModal, id: queryId } = useQueryParams();
   const { draft, bannerText } = useAiPrefill();
+  /*
+   * 2026-04-29 회귀 픽스 — `?modal=create` / `?modal=edit&id=N` 가 URL 에 남아있으면
+   * 사용자가 모달에서 저장 후 loadNotices() 가 notices 상태를 갱신할 때 아래
+   * useEffect deps `[queryModal, queryId, notices, loading]` 가 재실행되어 modal 을
+   * 즉시 다시 열어버린다 (= "저장은 됐는데 모달이 안 닫힘"). 일회성 소비 후 즉시
+   * URL 의 modal/id 키만 제거해 useEffect 가 다시 발화하지 않도록 차단한다.
+   * UsersPage 의 ACTION_QUERY_KEYS cleanup 패턴과 동일.
+   */
+  const [, setSearchParams] = useSearchParams();
+  const consumePrefillQuery = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('modal');
+        next.delete('id');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
 
   /* ── 목록 상태 ── */
   const [notices, setNotices] = useState([]);
@@ -183,6 +204,8 @@ export default function NoticeTab() {
       setEditTarget(null);
       setForm(prefill);
       setModalOpen(true);
+      // 한 번 소비한 modal/id 쿼리는 즉시 URL 에서 제거 (위 회귀 차단)
+      consumePrefillQuery();
       return;
     }
 
@@ -195,6 +218,7 @@ export default function NoticeTab() {
         // → "1번 공지 내용 보강해서 수정" 시 LLM 이 read 로 가져온 본문을 토대로 풍부한
         //   content 를 채우면 그 값이 기존 content 를 대체한다.
         openEditModal(target, draft);
+        consumePrefillQuery();
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
