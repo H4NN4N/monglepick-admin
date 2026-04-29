@@ -144,14 +144,23 @@ export default function DashboardPage() {
    * 추이 차트 기간 변경 시 trends API만 재호출.
    * KPI와 활동 피드는 유지.
    *
+   * 응답 정규화: 백엔드는 TrendsResponse(days, trends:[…]) 객체로 반환하므로
+   * .trends 필드를 추출한다. 과거 호환을 위해 응답이 이미 배열인 경우(임시
+   * mock 등)도 그대로 사용한다. loadAll 의 정규화 로직과 동일.
+   *
+   * 회귀 방지: 이전 구현은 `Array.isArray(result) ? result : []` 만 검사해
+   * 객체 응답을 항상 빈 배열로 떨어뜨려, 기간(7/14/30일) 필터 변경 시 차트가
+   * 통째로 비어 보이는 버그가 있었다.
+   *
    * @param {number} days - 새로운 기간 (7 | 14 | 30)
    */
   const loadTrends = useCallback(async (days) => {
     setTrendsLoading(true);
     setTrendsError(null);
     try {
-      const result = await fetchTrends({ days });
-      setTrendsData(Array.isArray(result) ? result : []);
+      const v = await fetchTrends({ days });
+      const list = Array.isArray(v) ? v : Array.isArray(v?.trends) ? v.trends : [];
+      setTrendsData(list);
     } catch (err) {
       setTrendsError(err?.message ?? '추이 데이터를 불러올 수 없습니다.');
     } finally {
@@ -161,13 +170,17 @@ export default function DashboardPage() {
 
   /**
    * 최근 활동 새로고침 (활동 섹션만).
+   *
+   * 응답 정규화: 백엔드는 RecentActivitiesResponse(activities:[…]) 객체로
+   * 반환하므로 .activities 필드를 추출한다. loadAll 의 정규화 로직과 동일.
    */
   const refreshActivity = useCallback(async () => {
     setActivityLoading(true);
     setActivityError(null);
     try {
-      const result = await fetchRecentActivities({ size: ACTIVITY_SIZE });
-      setActivityData(Array.isArray(result) ? result : []);
+      const v = await fetchRecentActivities({ size: ACTIVITY_SIZE });
+      const list = Array.isArray(v) ? v : Array.isArray(v?.activities) ? v.activities : [];
+      setActivityData(list);
     } catch (err) {
       setActivityError(err?.message ?? '최근 활동을 불러올 수 없습니다.');
     } finally {
