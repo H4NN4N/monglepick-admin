@@ -38,7 +38,9 @@ export function fetchOverview(params) {
  * @returns {Promise<Array>} [{ date, dau, newUsers, reviews }]
  */
 export function fetchTrends(params) {
-  return backendApi.get(`${STATS}/trends`, { params });
+  return backendApi
+    .get(`${STATS}/trends`, { params })
+    .then((response) => response?.trends ?? []);
 }
 
 /**
