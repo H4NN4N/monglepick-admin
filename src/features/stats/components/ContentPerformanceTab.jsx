@@ -1,13 +1,21 @@
 /**
- * 콘텐츠 성과 분석 탭 컴포넌트.
+ * 학습·도전 활동 분석 탭 컴포넌트.
+ *
+ * v3.6 (2026-04-28) 재구성:
+ * - 탭 라벨: "콘텐츠 성과" → "학습·도전 활동" (이름이 모호하던 문제 해결)
+ *   콘텐츠가 무엇을 의미하는지 불분명했음 — 실제 내용은 도장깨기 코스 + 업적 + 영화 퀴즈
+ * - 리뷰 품질 섹션 제거 — 학습·도전 활동과 무관, 별도 탭(커뮤니티)으로 이관 예정
+ *   백엔드 /content-performance/review-quality API 자체는 유지 (다른 화면에서 재사용 가능)
+ * - 안내 박스 추가
+ * - 차트 제목·툴팁·라벨 평이한 한국어로 정리
  *
  * 구성:
- * 1. KPI 카드 5개 (코스진행/완주/업적달성/퀴즈시도/퀴즈정답률)
- * 2. 코스별 완주율 Horizontal BarChart
- * 3. 리뷰 품질 — 카테고리별 리뷰 분포 BarChart + 평점 구간 분포 BarChart (2열)
+ * 1. 안내 박스
+ * 2. KPI 카드 5개 (코스 진행/완주/업적 달성/퀴즈 시도/퀴즈 정답률)
+ * 3. 코스별 시작자 vs 완주자 비교 BarChart (가로형)
  *
  * 데이터 패칭:
- * - Promise.allSettled로 3개 API 병렬 호출
+ * - Promise.allSettled 로 2개 API 병렬 호출 (overview, course-completion)
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -20,7 +28,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Cell,
 } from 'recharts';
 import {
   MdSchool,
@@ -28,24 +35,15 @@ import {
   MdEmojiEvents,
   MdQuiz,
   MdPercent,
+  MdInfoOutline,
 } from 'react-icons/md';
 import StatsCard from '@/shared/components/StatsCard';
 import {
   fetchContentPerformanceOverview,
   fetchCourseCompletion,
-  fetchReviewQuality,
 } from '../api/statsApi';
 
-/** 코스 완주율 색상 */
-const COURSE_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-
-/** 리뷰 카테고리 색상 */
-const REVIEW_CAT_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6'];
-
-/** 평점 분포 색상 (1점=빨강 → 5점=초록) */
-const RATING_COLORS = ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981'];
-
-/** 숫자 포맷 */
+/** 숫자 포맷 (천 단위 콤마) */
 function fmt(val) {
   if (val === null || val === undefined) return '-';
   return Number(val).toLocaleString();
@@ -61,32 +59,23 @@ export default function ContentPerformanceTab() {
   const [courses, setCourses] = useState(null);
   const [courseLoading, setCourseLoading] = useState(true);
 
-  /* 리뷰 품질 */
-  const [reviewQuality, setReviewQuality] = useState(null);
-  const [reviewLoading, setReviewLoading] = useState(true);
-
-  /** 최초 마운트: 3개 API 병렬 호출 */
+  /** 최초 마운트: 2개 API 병렬 호출 (review-quality 는 v3.6 부터 호출하지 않음) */
   const loadAll = useCallback(async () => {
     setOvLoading(true);
     setCourseLoading(true);
-    setReviewLoading(true);
     setOvError(null);
 
-    const [ovRes, courseRes, reviewRes] = await Promise.allSettled([
+    const [ovRes, courseRes] = await Promise.allSettled([
       fetchContentPerformanceOverview(),
       fetchCourseCompletion(),
-      fetchReviewQuality(),
     ]);
 
     if (ovRes.status === 'fulfilled') setOverview(ovRes.value);
-    else setOvError(ovRes.reason?.message ?? '콘텐츠 개요를 불러올 수 없습니다.');
+    else setOvError(ovRes.reason?.message ?? '학습·도전 개요를 불러올 수 없습니다.');
     setOvLoading(false);
 
     if (courseRes.status === 'fulfilled') setCourses(courseRes.value);
     setCourseLoading(false);
-
-    if (reviewRes.status === 'fulfilled') setReviewQuality(reviewRes.value);
-    setReviewLoading(false);
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
@@ -94,34 +83,83 @@ export default function ContentPerformanceTab() {
   /* 안전 접근 */
   const ov = overview ?? {};
   const courseItems = courses?.courses ?? [];
-  const rq = reviewQuality ?? {};
-  const catItems = rq.categoryDistribution ?? [];
-  const ratingItems = rq.ratingDistribution ?? [];
 
   /** KPI 카드 정의 */
   const kpiCards = [
-    { key: 'courseProgress', icon: <MdSchool size={18} />, title: '코스 진행', value: ovLoading ? '...' : `${fmt(ov.totalCourseProgress)}건`, subtitle: '전체 코스 진행 수', status: 'info' },
-    { key: 'courseCompleted', icon: <MdCheckCircle size={18} />, title: '코스 완주', value: ovLoading ? '...' : `${fmt(ov.completedCourses)}건`, subtitle: '완주된 코스 수', status: 'success' },
-    { key: 'achievements', icon: <MdEmojiEvents size={18} />, title: '업적 달성', value: ovLoading ? '...' : `${fmt(ov.totalAchievements)}건`, subtitle: '누적 업적 달성 수', status: 'success' },
-    { key: 'quizAttempts', icon: <MdQuiz size={18} />, title: '퀴즈 시도', value: ovLoading ? '...' : `${fmt(ov.totalQuizAttempts)}회`, subtitle: '누적 퀴즈 시도 횟수', status: 'info' },
-    { key: 'quizCorrectRate', icon: <MdPercent size={18} />, title: '퀴즈 정답률', value: ovLoading ? '...' : `${ov.quizCorrectRate ?? 0}%`, subtitle: '전체 퀴즈 정답 비율', status: (ov.quizCorrectRate ?? 0) >= 60 ? 'success' : 'warning' },
+    {
+      key: 'courseProgress',
+      icon: <MdSchool size={18} />,
+      title: '코스 진행',
+      value: ovLoading ? '...' : `${fmt(ov.totalCourseProgress)}건`,
+      subtitle: '도장깨기 코스를 시작한 누적 건수',
+      status: 'info',
+    },
+    {
+      key: 'courseCompleted',
+      icon: <MdCheckCircle size={18} />,
+      title: '코스 완주',
+      value: ovLoading ? '...' : `${fmt(ov.completedCourses)}건`,
+      subtitle: '코스를 끝까지 완료한 누적 건수',
+      status: 'success',
+    },
+    {
+      key: 'achievements',
+      icon: <MdEmojiEvents size={18} />,
+      title: '업적 달성',
+      value: ovLoading ? '...' : `${fmt(ov.totalAchievements)}건`,
+      subtitle: '사용자가 획득한 누적 업적 수',
+      status: 'success',
+    },
+    {
+      key: 'quizAttempts',
+      icon: <MdQuiz size={18} />,
+      title: '퀴즈 시도',
+      value: ovLoading ? '...' : `${fmt(ov.totalQuizAttempts)}회`,
+      subtitle: '영화 퀴즈를 푼 누적 횟수',
+      status: 'info',
+    },
+    {
+      key: 'quizCorrectRate',
+      icon: <MdPercent size={18} />,
+      title: '퀴즈 정답률',
+      value: ovLoading ? '...' : `${ov.quizCorrectRate ?? 0}%`,
+      subtitle: '전체 시도 대비 정답 비율',
+      status: (ov.quizCorrectRate ?? 0) >= 60 ? 'success' : 'warning',
+    },
   ];
 
   return (
     <Wrapper>
+      {/* ── 안내 박스 ── */}
+      <InfoBox>
+        <InfoIcon><MdInfoOutline size={20} /></InfoIcon>
+        <InfoText>
+          <strong>이 탭의 목적</strong> — 사용자가 <em>도장깨기 코스 · 업적 · 영화 퀴즈</em> 같은
+          학습·도전 콘텐츠에 얼마나 참여하고, 끝까지 완주하는지 확인합니다.
+          코스별 시작자 대비 완주자 차이가 큰 코스는 난이도·동기부여 점검 대상입니다.
+        </InfoText>
+      </InfoBox>
+
       {/* ── KPI 카드 ── */}
-      <SectionLabel>콘텐츠 성과 지표</SectionLabel>
+      <SectionLabel>학습·도전 활동 지표</SectionLabel>
       {ovError && <ErrorMsg>{ovError}</ErrorMsg>}
       <KpiGrid>
         {kpiCards.map((card) => (
-          <StatsCard key={card.key} icon={card.icon} title={card.title} value={card.value} subtitle={card.subtitle} status={card.status} />
+          <StatsCard
+            key={card.key}
+            icon={card.icon}
+            title={card.title}
+            value={card.value}
+            subtitle={card.subtitle}
+            status={card.status}
+          />
         ))}
       </KpiGrid>
 
-      {/* ── 코스별 완주율 ── */}
-      <SectionLabel style={{ marginTop: '32px' }}>코스별 완주율</SectionLabel>
+      {/* ── 코스별 시작자 vs 완주자 비교 ── */}
+      <SectionLabel style={{ marginTop: '32px' }}>코스별 시작자 / 완주자</SectionLabel>
       <ChartCard>
-        <ChartTitle>코스별 시작자 수 / 완주자 수 / 평균 진행률</ChartTitle>
+        <ChartTitle>도장깨기 코스 — 시작한 사람 vs 끝까지 완주한 사람</ChartTitle>
         <ChartBody>
           {courseLoading ? (
             <LoadingMsg>데이터를 불러오는 중...</LoadingMsg>
@@ -129,86 +167,79 @@ export default function ContentPerformanceTab() {
             <LoadingMsg>표시할 코스 데이터가 없습니다.</LoadingMsg>
           ) : (
             <ResponsiveContainer width="100%" height={Math.max(280, courseItems.length * 50)}>
-              <BarChart data={courseItems} layout="vertical" margin={{ top: 4, right: 24, left: 100, bottom: 0 }}>
+              <BarChart
+                data={courseItems}
+                layout="vertical"
+                margin={{ top: 4, right: 24, left: 100, bottom: 0 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="courseId" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={100} />
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 11, fill: '#94a3b8' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="courseId"
+                  tick={{ fontSize: 11, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={100}
+                />
                 <Tooltip
                   formatter={(value, name) => {
-                    if (name === 'completionRate') return [`${value}%`, '완주율'];
-                    return [`${fmt(value)}명`, name === 'started' ? '시작자' : '완주자'];
+                    if (name === 'started')   return [`${fmt(value)}명`, '시작한 사람'];
+                    if (name === 'completed') return [`${fmt(value)}명`, '완주한 사람'];
+                    return [`${fmt(value)}명`, name];
                   }}
-                  contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px' }}
+                  contentStyle={{
+                    background: '#fff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                  }}
                 />
-                <Bar dataKey="started" name="시작자" fill="#94a3b8" radius={[0, 4, 4, 0]} barSize={16} />
-                <Bar dataKey="completed" name="완주자" fill="#10b981" radius={[0, 4, 4, 0]} barSize={16} />
+                <Bar dataKey="totalStarters"  name="started"   fill="#94a3b8" radius={[0, 4, 4, 0]} barSize={16} />
+                <Bar dataKey="completedCount" name="completed" fill="#10b981" radius={[0, 4, 4, 0]} barSize={16} />
               </BarChart>
             </ResponsiveContainer>
           )}
         </ChartBody>
       </ChartCard>
-
-      {/* ── 리뷰 품질 (2열) ── */}
-      <SectionLabel style={{ marginTop: '32px' }}>리뷰 품질 분석</SectionLabel>
-      <TwoColGrid>
-        {/* 카테고리별 리뷰 분포 */}
-        <ChartCard>
-          <ChartTitle>리뷰 작성 경로별 분포</ChartTitle>
-          <ChartBody>
-            {reviewLoading ? (
-              <LoadingMsg>데이터를 불러오는 중...</LoadingMsg>
-            ) : catItems.length === 0 ? (
-              <LoadingMsg>표시할 데이터가 없습니다.</LoadingMsg>
-            ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={catItems} margin={{ top: 4, right: 24, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={(value) => [`${fmt(value)}건`]} contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px' }} />
-                  <Bar dataKey="count" name="리뷰 수" radius={[4, 4, 0, 0]} barSize={36}>
-                    {catItems.map((_, idx) => (
-                      <Cell key={`rc-${idx}`} fill={REVIEW_CAT_COLORS[idx % REVIEW_CAT_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </ChartBody>
-        </ChartCard>
-
-        {/* 평점 구간 분포 */}
-        <ChartCard>
-          <ChartTitle>평점 분포</ChartTitle>
-          <ChartBody>
-            {reviewLoading ? (
-              <LoadingMsg>데이터를 불러오는 중...</LoadingMsg>
-            ) : ratingItems.length === 0 ? (
-              <LoadingMsg>표시할 데이터가 없습니다.</LoadingMsg>
-            ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={ratingItems} margin={{ top: 4, right: 24, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="rating" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={(value) => [`${fmt(value)}건`]} contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px' }} />
-                  <Bar dataKey="count" name="리뷰 수" radius={[4, 4, 0, 0]} barSize={40}>
-                    {ratingItems.map((_, idx) => (
-                      <Cell key={`rat-${idx}`} fill={RATING_COLORS[idx % RATING_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </ChartBody>
-        </ChartCard>
-      </TwoColGrid>
     </Wrapper>
   );
 }
 
 /* ── styled-components ── */
 const Wrapper = styled.div``;
+
+/* ── 상단 안내 박스 ── */
+const InfoBox = styled.div`
+  display: flex;
+  gap: ${({ theme }) => theme.spacing.md};
+  background: ${({ theme }) => theme.colors.primaryBg};
+  border: 1px solid ${({ theme }) => theme.colors.primary}33;
+  border-radius: ${({ theme }) => theme.layout.cardRadius};
+  padding: ${({ theme }) => theme.spacing.lg} ${({ theme }) => theme.spacing.xl};
+  margin-bottom: ${({ theme }) => theme.spacing.xxl};
+`;
+const InfoIcon = styled.div`
+  flex-shrink: 0;
+  color: ${({ theme }) => theme.colors.primary};
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+`;
+const InfoText = styled.p`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  line-height: 1.6;
+  margin: 0;
+  & strong { color: ${({ theme }) => theme.colors.textPrimary}; font-weight: ${({ theme }) => theme.fontWeights.semibold}; }
+  & em { font-style: normal; color: ${({ theme }) => theme.colors.primary}; font-weight: ${({ theme }) => theme.fontWeights.semibold}; }
+`;
+
 const SectionLabel = styled.p`
   font-size: ${({ theme }) => theme.fontSizes.xs};
   font-weight: ${({ theme }) => theme.fontWeights.semibold};
@@ -231,11 +262,6 @@ const KpiGrid = styled.div`
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: ${({ theme }) => theme.spacing.lg};
   margin-bottom: ${({ theme }) => theme.spacing.xxl};
-`;
-const TwoColGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-  gap: ${({ theme }) => theme.spacing.lg};
 `;
 const ChartCard = styled.div`
   background: ${({ theme }) => theme.colors.bgCard};

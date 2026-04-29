@@ -306,16 +306,21 @@ export function fetchCourseCompletion() {
   return backendApi.get(`${STATS}/content-performance/course-completion`);
 }
 
-/** 리뷰 품질 지표 (카테고리별/평점 분포) */
+/**
+ * 리뷰 품질 지표 (카테고리별/평점 분포).
+ *
+ * v3.6 (2026-04-28): "학습·도전 활동" 탭에서 리뷰 품질 섹션이 제거되어 호출처가 없다.
+ * 향후 "커뮤니티" 탭으로 이관 예정 — 백엔드 엔드포인트 자체는 유지되어 있어 그대로 재사용 가능.
+ */
 export function fetchReviewQuality() {
   return backendApi.get(`${STATS}/content-performance/review-quality`);
 }
 
 // ══════════════════════════════════════════════
-// 전환 퍼널 분석
+// 사용자 단계별 진행 분석 (구 "전환 퍼널")
 // ══════════════════════════════════════════════
 
-/** 6단계 전환 퍼널 (가입→활동→AI→리뷰→구독→결제) */
+/** 5단계 사용자 진행 (가입→첫활동→AI→리뷰→결제). v3.6 에서 6→5단계로 단순화. */
 export function fetchConversionFunnel(params) {
   return backendApi.get(`${STATS}/funnel/conversion`, { params });
 }
