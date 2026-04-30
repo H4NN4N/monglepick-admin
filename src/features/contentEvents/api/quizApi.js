@@ -65,6 +65,17 @@ export function deleteQuiz(id) {
 }
 
 /**
+ * 퀴즈 참여자 목록 조회 (페이징).
+ *
+ * @param {number|string} id
+ * @param {number} [page=0]
+ * @param {number} [size=20]
+ */
+export function fetchQuizParticipations(id, page = 0, size = 20) {
+  return backendApi.get(`${QUIZ_BASE}/${id}/participations`, { params: { page, size } });
+}
+
+/**
  * 신규 퀴즈 생성 (PENDING 상태로 INSERT).
  * 기존 AdminAiOpsController.generateQuiz EP 호출.
  *
