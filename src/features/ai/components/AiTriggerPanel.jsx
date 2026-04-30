@@ -108,7 +108,7 @@ export default function AiTriggerPanel() {
    * 검수자가 PENDING 상태인 신규 생성건을 즉시 APPROVED/REJECTED 처리할 수 있도록 한다.
    */
   function handleGoToQuizTab() {
-    navigate('/content-events?tab=quiz');
+    navigate('/admin/content-events?tab=quiz');
   }
 
   /**
