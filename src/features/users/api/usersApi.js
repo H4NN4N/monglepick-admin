@@ -19,6 +19,7 @@ const ADMIN_USERS = '/api/v1/admin/users';
  * @param {string} [params.keyword] - 이메일/닉네임 키워드 검색
  * @param {string} [params.status]  - 계정 상태 필터 (ACTIVE | SUSPENDED | LOCKED)
  * @param {string} [params.role]    - 역할 필터 (USER | ADMIN)
+ * @param {string} [params.deletedFilter] - 탈퇴 필터 (NOT_DELETED | DELETED | ALL)
  * @param {number} [params.page=0]  - 페이지 번호 (0-based)
  * @param {number} [params.size=20] - 페이지 크기
  * @returns {Promise<{content: Array, totalElements: number, totalPages: number}>}
@@ -80,6 +81,16 @@ export function fetchSuspensionHistory(userId) {
  */
 export function activateUser(userId) {
   return backendApi.put(`${ADMIN_USERS}/${userId}/activate`);
+}
+
+/**
+ * 탈퇴 계정 복구.
+ *
+ * @param {string} userId - 사용자 ID
+ * @returns {Promise<Object>} 처리 결과
+ */
+export function restoreWithdrawal(userId) {
+  return backendApi.patch(`${ADMIN_USERS}/${userId}/restore-withdrawal`);
 }
 
 /**

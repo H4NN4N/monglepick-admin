@@ -8,6 +8,7 @@
  * - 페이지네이션
  *
  * @param {Object}   props
+ * @param {number}   props.refreshKey      - 외부 액션 완료 후 목록 재조회 트리거
  * @param {string}   props.selectedUserId  - 현재 선택된 사용자 ID (행 하이라이트)
  * @param {Function} props.onSelectUser    - 사용자 선택 콜백 (userId: string) => void
  */
@@ -25,6 +26,7 @@ import {
 } from 'react-icons/md';
 import { fetchUsers, suspendUser, activateUser } from '../api/usersApi';
 import StatusBadge from '@/shared/components/StatusBadge';
+import { getDisplayEmail, isWithdrawnUser } from '../utils/userDisplay';
 
 /** 날짜 포맷 헬퍼: ISO → YYYY.MM.DD HH:MM */
 function formatDate(dateStr) {
@@ -39,6 +41,7 @@ const STATUS_BADGE = {
   ACTIVE:    { status: 'success', label: '활성' },
   SUSPENDED: { status: 'error',   label: '정지' },
   LOCKED:    { status: 'warning', label: '잠금' },
+  WITHDRAWN: { status: 'default', label: '탈퇴' },
 };
 
 /** 역할 → StatusBadge 매핑 */
@@ -62,10 +65,17 @@ const ROLE_OPTIONS = [
   { value: 'ADMIN', label: 'ADMIN' },
 ];
 
+/** 탈퇴 필터 옵션 */
+const DELETED_FILTER_OPTIONS = [
+  { value: 'NOT_DELETED', label: '정상 회원' },
+  { value: 'DELETED',     label: '탈퇴 회원' },
+  { value: 'ALL',         label: '전체' },
+];
+
 /** 페이지 크기 */
 const PAGE_SIZE = 20;
 
-export default function UserTable({ selectedUserId, onSelectUser }) {
+export default function UserTable({ refreshKey = 0, selectedUserId, onSelectUser }) {
   /* ── 목록 상태 ── */
   const [users, setUsers]     = useState([]);
   const [total, setTotal]     = useState(0);
@@ -79,6 +89,7 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
   const [keyword, setKeyword]     = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [roleFilter, setRoleFilter]     = useState('');
+  const [deletedFilter, setDeletedFilter] = useState('NOT_DELETED');
 
   /* ── 페이징 상태 ── */
   const [page, setPage] = useState(0);
@@ -108,7 +119,7 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
     try {
       setLoading(true);
       setError(null);
-      const params = { page, size: PAGE_SIZE };
+      const params = { page, size: PAGE_SIZE, deletedFilter };
       if (keyword)      params.keyword = keyword;
       if (statusFilter) params.status  = statusFilter;
       if (roleFilter)   params.role    = roleFilter;
@@ -120,9 +131,9 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
     } finally {
       setLoading(false);
     }
-  }, [page, keyword, statusFilter, roleFilter]);
+  }, [page, keyword, statusFilter, roleFilter, deletedFilter]);
 
-  useEffect(() => { loadUsers(); }, [loadUsers]);
+  useEffect(() => { loadUsers(); }, [loadUsers, refreshKey]);
 
   /**
    * 필터/페이지 변경 시 대량 선택 초기화.
@@ -131,7 +142,7 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
    */
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, keyword, statusFilter, roleFilter]);
+  }, [page, keyword, statusFilter, roleFilter, deletedFilter]);
 
   /** 컴포넌트 언마운트 시 디바운스 타이머 클린업 */
   useEffect(() => {
@@ -164,7 +175,7 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
    */
   function toggleSelectAll() {
     setSelectedIds((prev) => {
-      const idsInPage = users.map((u) => u.userId);
+      const idsInPage = users.filter((u) => !isWithdrawnUser(u)).map((u) => u.userId);
       if (idsInPage.length === 0) return prev;
       const allSelected = idsInPage.every((id) => prev.has(id));
       const next = new Set(prev);
@@ -194,9 +205,13 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
   async function runBulk(action) {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
+    const selectedUsers = users.filter((u) => selectedIds.has(u.userId));
+    if (selectedUsers.some(isWithdrawnUser)) {
+      alert('탈퇴 회원은 일괄 정지/활성화 대상에서 제외해야 합니다.');
+      return;
+    }
 
     const actionLabel = action === 'suspend' ? '일괄 정지' : '일괄 활성화';
-    // eslint-disable-next-line no-alert
     const ok = window.confirm(
       `선택한 ${ids.length}명을 ${actionLabel}하시겠습니까?\n` +
       (action === 'suspend'
@@ -229,11 +244,9 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
       if (firstError) {
         message += `\n\n첫 실패 사유: ${firstError.reason?.message ?? '알 수 없음'}`;
       }
-      // eslint-disable-next-line no-alert
       alert(message);
     } catch (err) {
       // Promise.allSettled 는 reject 하지 않지만, 예외적 네트워크 오류 대비 catch 유지
-      // eslint-disable-next-line no-alert
       alert(`대량 작업 중 오류 발생: ${err?.message ?? '알 수 없음'}`);
     } finally {
       setBulkProcessing(false);
@@ -279,6 +292,11 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
    */
   function handleRoleFilter(e) {
     setRoleFilter(e.target.value);
+    setPage(0);
+  }
+
+  function handleDeletedFilter(e) {
+    setDeletedFilter(e.target.value);
     setPage(0);
   }
 
@@ -330,6 +348,12 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
           {/* 역할 필터 셀렉트 */}
           <RoleSelect value={roleFilter} onChange={handleRoleFilter}>
             {ROLE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </RoleSelect>
+
+          <RoleSelect value={deletedFilter} onChange={handleDeletedFilter} title="탈퇴 필터">
+            {DELETED_FILTER_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </RoleSelect>
@@ -423,19 +447,20 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
               <Th $w="80px">상태</Th>
               <Th $w="140px">가입일</Th>
               <Th $w="140px">최근 로그인</Th>
+              <Th $w="140px">탈퇴일</Th>
               <Th $w="56px">상세</Th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   <CenterCell>불러오는 중...</CenterCell>
                 </td>
               </tr>
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   <CenterCell>검색 결과가 없습니다.</CenterCell>
                 </td>
               </tr>
@@ -443,7 +468,10 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
               users.map((user) => {
                 const isSelected = selectedUserId === user.userId;
                 const isChecked  = selectedIds.has(user.userId);
-                const statusInfo = STATUS_BADGE[user.status] ?? { status: 'default', label: user.status ?? '-' };
+                const withdrawn = isWithdrawnUser(user);
+                const statusInfo = withdrawn
+                  ? STATUS_BADGE.WITHDRAWN
+                  : STATUS_BADGE[user.status] ?? { status: 'default', label: user.status ?? '-' };
                 const roleInfo   = ROLE_BADGE[user.userRole] ?? { status: 'default', label: user.userRole ?? '-' };
 
                 return (
@@ -458,19 +486,21 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
                       <RowCheckbox
                         type="checkbox"
                         checked={isChecked}
-                        disabled={bulkProcessing}
+                        disabled={bulkProcessing || withdrawn}
                         onChange={() => toggleSelectOne(user.userId)}
+                        title={withdrawn ? '탈퇴 회원은 일반 계정 관리 액션에서 제외됩니다.' : undefined}
                         aria-label={`사용자 ${user.userId} 선택`}
                       />
                     </Td>
                     {/* 아바타 칸 (이니셜) */}
                     <Td>
                       <Avatar>
-                        {(user.nickname ?? user.email ?? '?')[0].toUpperCase()}
+                        {(user.nickname ?? getDisplayEmail(user) ?? '?')[0].toUpperCase()}
                       </Avatar>
                     </Td>
                     <Td>
-                      <EmailText>{user.email ?? '-'}</EmailText>
+                      <EmailText $muted={withdrawn}>{getDisplayEmail(user)}</EmailText>
+                      {withdrawn && <UserIdHint>{user.userId}</UserIdHint>}
                     </Td>
                     <Td>
                       <NicknameText>{user.nickname ?? '-'}</NicknameText>
@@ -486,6 +516,9 @@ export default function UserTable({ selectedUserId, onSelectUser }) {
                     </Td>
                     <Td>
                       <DateText>{formatDate(user.lastLoginAt)}</DateText>
+                    </Td>
+                    <Td>
+                      <DateText>{withdrawn ? formatDate(user.deletedAt) : '-'}</DateText>
                     </Td>
                     <Td>
                       {/* 상세 보기 버튼 — 행 클릭과 동일 동작 */}
@@ -547,7 +580,7 @@ function HeaderCheckbox({ users, selectedIds, onToggle, disabled }) {
   const ref = useRef(null);
 
   // users 또는 selectedIds 변경 시 indeterminate 상태를 재계산하여 DOM 에 반영
-  const idsInPage = users.map((u) => u.userId);
+  const idsInPage = users.filter((u) => !isWithdrawnUser(u)).map((u) => u.userId);
   const checkedCount = idsInPage.filter((id) => selectedIds.has(id)).length;
   const allChecked = idsInPage.length > 0 && checkedCount === idsInPage.length;
   const someChecked = checkedCount > 0 && !allChecked;
@@ -702,7 +735,7 @@ const Table = styled.table`
   width: 100%;
   border-collapse: collapse;
   font-size: ${({ theme }) => theme.fontSizes.sm};
-  min-width: 700px;
+  min-width: 840px;
 `;
 
 const Th = styled.th`
@@ -754,12 +787,25 @@ const Avatar = styled.div`
 
 const EmailText = styled.span`
   font-size: ${({ theme }) => theme.fontSizes.sm};
-  color: ${({ theme }) => theme.colors.textPrimary};
+  color: ${({ $muted, theme }) => $muted ? theme.colors.textMuted : theme.colors.textPrimary};
+  font-weight: ${({ $muted, theme }) => $muted ? theme.fontWeights.semibold : theme.fontWeights.normal};
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   display: block;
   max-width: 220px;
+`;
+
+const UserIdHint = styled.span`
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  font-family: ${({ theme }) => theme.fonts.mono};
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 `;
 
 const NicknameText = styled.span`

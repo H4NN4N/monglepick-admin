@@ -30,11 +30,18 @@ import {
   updateUserRole,
   suspendUser,
   activateUser,
+  restoreWithdrawal,
   adjustUserPoints,
   grantAiTokens,
   fetchSuspensionHistory,
 } from '../api/usersApi';
 import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
+import {
+  formatHistorySummary,
+  getDisplayEmail,
+  getUserDisplayName,
+  isWithdrawnUser,
+} from '../utils/userDisplay';
 
 /** 역할 옵션 */
 const ROLE_OPTIONS = [
@@ -51,6 +58,7 @@ export default function UserActionModal({
   aiDraft = null,
   aiDraftFromAssistant = false,
 }) {
+  const withdrawnUser = isWithdrawnUser(user);
   /* ── 폼 상태 ── */
   /** 역할 변경 모드: 선택된 역할 값 */
   const [selectedRole, setSelectedRole] = useState('USER');
@@ -123,7 +131,6 @@ export default function UserActionModal({
       }
     }
     // aiDraft 제외 — aiDraftRef 로 최신값 사용. 부모 cleanup 에 의한 폼 리셋 차단.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, user, mode]);
 
   /** 모달 외부 클릭 시 닫기 */
@@ -138,6 +145,10 @@ export default function UserActionModal({
   async function handleRoleSubmit(e) {
     e.preventDefault();
     if (!user?.userId) return;
+    if (withdrawnUser) {
+      setError('탈퇴 회원은 역할을 변경할 수 없습니다.');
+      return;
+    }
     if (selectedRole === user.userRole) {
       setError('현재 역할과 동일합니다. 다른 역할을 선택해주세요.');
       return;
@@ -162,6 +173,10 @@ export default function UserActionModal({
   async function handleSuspendSubmit(e) {
     e.preventDefault();
     if (!user?.userId) return;
+    if (withdrawnUser) {
+      setError('탈퇴 회원은 계정 정지 대상이 아닙니다.');
+      return;
+    }
     if (!suspendReason.trim()) {
       setError('정지 사유를 입력해주세요.');
       return;
@@ -201,6 +216,10 @@ export default function UserActionModal({
   async function handlePointsSubmit(e) {
     e.preventDefault();
     if (!user?.userId) return;
+    if (withdrawnUser) {
+      setError('탈퇴 회원은 수동 포인트 조정 대상이 아닙니다.');
+      return;
+    }
     const amount = Number(pointAmount);
     if (!Number.isInteger(amount) || amount === 0) {
       setError('변동량은 0이 아닌 정수여야 합니다. (양수=지급, 음수=회수)');
@@ -233,6 +252,10 @@ export default function UserActionModal({
   async function handleGrantTokensSubmit(e) {
     e.preventDefault();
     if (!user?.userId) return;
+    if (withdrawnUser) {
+      setError('탈퇴 회원은 이용권 발급 대상이 아닙니다.');
+      return;
+    }
     const count = Number(tokenCount);
     if (!Number.isInteger(count) || count < 1) {
       setError('발급 수량은 1 이상의 정수여야 합니다.');
@@ -260,14 +283,19 @@ export default function UserActionModal({
 
   /**
    * 계정 복구 제출 핸들러.
-   * PUT /admin/users/{userId}/activate
+   * - 일반 정지 계정: PUT /admin/users/{userId}/activate
+   * - 탈퇴 계정: PATCH /admin/users/{userId}/restore-withdrawal
    */
   async function handleActivateSubmit() {
     if (!user?.userId) return;
     try {
       setLoading(true);
       setError(null);
-      await activateUser(user.userId);
+      if (withdrawnUser) {
+        await restoreWithdrawal(user.userId);
+      } else {
+        await activateUser(user.userId);
+      }
       onSuccess?.();
       onClose();
     } catch (err) {
@@ -299,9 +327,10 @@ export default function UserActionModal({
             <UserSummary>
               <UserSummaryLabel>대상 사용자</UserSummaryLabel>
               <UserSummaryValue>
-                {user.nickname ?? user.email ?? user.userId}
+                {getUserDisplayName(user)}
               </UserSummaryValue>
             </UserSummary>
+            {withdrawnUser && <WithdrawnNotice>탈퇴 회원은 일반 계정 관리 액션이 제한됩니다.</WithdrawnNotice>}
 
             <Form onSubmit={handleRoleSubmit}>
               <FormRow>
@@ -350,9 +379,10 @@ export default function UserActionModal({
             <UserSummary>
               <UserSummaryLabel>대상 사용자</UserSummaryLabel>
               <UserSummaryValue>
-                {user.nickname ?? user.email ?? user.userId}
+                {getUserDisplayName(user)}
               </UserSummaryValue>
             </UserSummary>
+            {withdrawnUser && <WithdrawnNotice>탈퇴 회원은 일반 계정 관리 액션이 제한됩니다.</WithdrawnNotice>}
 
             <WarnNotice>
               계정을 정지하면 해당 사용자는 서비스에 로그인할 수 없습니다.
@@ -421,9 +451,10 @@ export default function UserActionModal({
             <UserSummary>
               <UserSummaryLabel>대상 사용자</UserSummaryLabel>
               <UserSummaryValue>
-                {user.nickname ?? user.email ?? user.userId}
+                {getUserDisplayName(user)}
               </UserSummaryValue>
             </UserSummary>
+            {withdrawnUser && <WithdrawnNotice>탈퇴 회원은 일반 계정 관리 액션이 제한됩니다.</WithdrawnNotice>}
             <WarnNotice>
               양수=지급(bonus), 음수=회수(revoke), 0=불가.
               PointsHistory INSERT-ONLY 원장에 자동 기록됩니다.
@@ -485,9 +516,10 @@ export default function UserActionModal({
             <UserSummary>
               <UserSummaryLabel>대상 사용자</UserSummaryLabel>
               <UserSummaryValue>
-                {user.nickname ?? user.email ?? user.userId}
+                {getUserDisplayName(user)}
               </UserSummaryValue>
             </UserSummary>
+            {withdrawnUser && <WithdrawnNotice>탈퇴 회원은 일반 계정 관리 액션이 제한됩니다.</WithdrawnNotice>}
             <WarnNotice>
               user_ai_quota.purchased_ai_tokens가 발급 수량만큼 증가합니다.
               사과 보상, 마케팅 캠페인, 운영 사고 복구 등에 사용하세요.
@@ -544,7 +576,7 @@ export default function UserActionModal({
             <UserSummary>
               <UserSummaryLabel>대상 사용자</UserSummaryLabel>
               <UserSummaryValue>
-                {user.nickname ?? user.email ?? user.userId}
+                {getUserDisplayName(user)}
               </UserSummaryValue>
             </UserSummary>
             {error && <ErrorMsg>{error}</ErrorMsg>}
@@ -585,13 +617,32 @@ export default function UserActionModal({
       {/* ── 계정 복구 확인 다이얼로그 ── */}
       {mode === 'activate' && (
         <DialogBox onClick={(e) => e.stopPropagation()}>
-          <DialogTitle>계정 복구</DialogTitle>
-          <DialogDesc>
-            <strong>{user.nickname ?? user.email ?? user.userId}</strong> 님의
-            계정을 복구하시겠습니까?
-            <br />
-            복구 후 사용자는 즉시 서비스에 로그인할 수 있습니다.
-          </DialogDesc>
+          <DialogTitle>{withdrawnUser ? '탈퇴 회원 복구' : '계정 복구'}</DialogTitle>
+          {withdrawnUser ? (
+            <>
+              <DialogDesc>
+                이 계정을 복구하면 다시 로그인/API 사용이 가능해집니다.
+                <br />
+                재가입 제한 이력도 함께 정리됩니다.
+                <br />
+                복구 후 계정 상태는 ACTIVE가 됩니다.
+              </DialogDesc>
+              <RestoreIdentityList>
+                <li><span>userId</span><strong>{user.userId ?? '-'}</strong></li>
+                <li><span>탈퇴 일시</span><strong>{user.deletedAt ?? '-'}</strong></li>
+                <li><span>가입 일시</span><strong>{user.createdAt ?? '-'}</strong></li>
+                <li><span>최근 로그인</span><strong>{user.lastLoginAt ?? '-'}</strong></li>
+                <li><span>이메일</span><strong>{getDisplayEmail(user)}</strong></li>
+                <li><span>이력 요약</span><strong>{formatHistorySummary(user)}</strong></li>
+              </RestoreIdentityList>
+            </>
+          ) : (
+            <DialogDesc>
+              <strong>{getUserDisplayName(user)}</strong> 님의 계정을 복구하시겠습니까?
+              <br />
+              복구 후 사용자는 즉시 서비스에 로그인할 수 있습니다.
+            </DialogDesc>
+          )}
 
           {/* 에러 메시지 */}
           {error && <ErrorMsg>{error}</ErrorMsg>}
@@ -601,7 +652,7 @@ export default function UserActionModal({
               취소
             </CancelButton>
             <SuccessButton onClick={handleActivateSubmit} disabled={loading}>
-              {loading ? '처리 중...' : '계정 복구'}
+              {loading ? '처리 중...' : withdrawnUser ? '탈퇴 계정 복구' : '계정 복구'}
             </SuccessButton>
           </DialogFooter>
         </DialogBox>
@@ -847,6 +898,48 @@ const ErrorMsg = styled.p`
   background: ${({ theme }) => theme.colors.errorBg};
   border-radius: 4px;
   padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
+`;
+
+const WithdrawnNotice = styled.p`
+  margin: ${({ theme }) => theme.spacing.sm} 0;
+  padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
+  border-radius: 4px;
+  background: ${({ theme }) => theme.colors.bgHover};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+`;
+
+const RestoreIdentityList = styled.ul`
+  list-style: none;
+  margin: ${({ theme }) => theme.spacing.md} 0;
+  padding: 0;
+  border: 1px solid ${({ theme }) => theme.colors.borderLight};
+  border-radius: 6px;
+  overflow: hidden;
+
+  li {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: ${({ theme }) => theme.spacing.sm};
+    padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
+    border-bottom: 1px solid ${({ theme }) => theme.colors.borderLight};
+    font-size: ${({ theme }) => theme.fontSizes.xs};
+  }
+
+  li:last-child {
+    border-bottom: none;
+  }
+
+  span {
+    color: ${({ theme }) => theme.colors.textMuted};
+  }
+
+  strong {
+    color: ${({ theme }) => theme.colors.textPrimary};
+    font-weight: ${({ theme }) => theme.fontWeights.medium};
+    min-width: 0;
+    word-break: break-all;
+  }
 `;
 
 /** 모달 하단 버튼 행 */
