@@ -96,7 +96,7 @@ export default function TicketTab({ aiTicketId = null }) {
    * Agent 가 draft.content 를 보내면 useAiPrefill 이 location.state 에서 꺼낸다.
    * aiTicketId 로 자동 상세 오픈 후 그 textarea 에 draft.content 를 주입.
    */
-  const { draft: aiDraft, bannerText: aiBannerText } = useAiPrefill();
+  const { draft: aiDraft } = useAiPrefill();
 
   /* ── 목록 상태 ── */
   const [tickets, setTickets] = useState([]);

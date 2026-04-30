@@ -210,7 +210,7 @@ export default function AiServiceTab() {
     try {
       const data = await fetchAiLatency({ period: lp });
       setLatency(data);
-    } catch (e) {
+    } catch (_) {
       // ignore — 섹션 별 로딩 메시지가 처리
     } finally {
       setLoading((prev) => ({ ...prev, latency: false }));
