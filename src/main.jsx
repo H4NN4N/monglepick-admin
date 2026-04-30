@@ -21,7 +21,7 @@ import App from './App';
  * useThemeStore를 구독하여 모드에 맞는 테마 객체를 ThemeProvider에 주입한다.
  * main.jsx 최상단에서 createRoot 이후에 훅을 사용하기 위해 별도 컴포넌트로 분리한다.
  */
-function ThemedApp() {
+export function ThemedApp() {
   const mode = useThemeStore((s) => s.mode);
   const theme = mode === 'dark' ? darkTheme : lightTheme;
 
