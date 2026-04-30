@@ -17,13 +17,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
-import { MdRefresh, MdAdd, MdEdit, MdDelete } from 'react-icons/md';
+import { MdRefresh, MdAdd, MdEdit, MdDelete, MdPeople } from 'react-icons/md';
 import {
   fetchQuizzes,
   createQuiz,
   updateQuiz,
   updateQuizStatus,
   deleteQuiz,
+  fetchQuizParticipations,
 } from '../api/quizApi';
 /*
  * 2026-04-14: 운영자가 movie_id(VARCHAR PK) 를 외워 입력하던 부담을 제거하기 위해
@@ -194,6 +195,14 @@ export default function QuizManagementTab({ aiModal }) {
 
   /* ── 작업 진행 상태 ── */
   const [busyId, setBusyId] = useState(null);
+
+  /* ── 참여자 모달 상태 ── */
+  const [partModal, setPartModal] = useState(null); // { quizId, quizQuestion }
+  const [partList, setPartList] = useState([]);
+  const [partPage, setPartPage] = useState(0);
+  const [partTotalPages, setPartTotalPages] = useState(0);
+  const [partTotalElements, setPartTotalElements] = useState(0);
+  const [partLoading, setPartLoading] = useState(false);
 
   /**
    * 목록 조회 — 2026-04-09 P1-⑫ 서버 전역 검색으로 승급.
@@ -456,6 +465,39 @@ export default function QuizManagementTab({ aiModal }) {
     }
   }
 
+  /** 참여자 모달 열기 */
+  async function openPartModal(item, page = 0) {
+    setPartModal({ quizId: item.quizId, quizQuestion: item.question });
+    setPartPage(page);
+    setPartLoading(true);
+    try {
+      const result = await fetchQuizParticipations(item.quizId, page, 20);
+      setPartList(result?.content ?? []);
+      setPartTotalPages(result?.totalPages ?? 0);
+      setPartTotalElements(result?.totalElements ?? 0);
+    } catch (err) {
+      alert(err.message || '참여자 목록 조회 실패');
+      setPartModal(null);
+    } finally {
+      setPartLoading(false);
+    }
+  }
+
+  async function handlePartPageChange(newPage) {
+    if (!partModal) return;
+    setPartPage(newPage);
+    setPartLoading(true);
+    try {
+      const result = await fetchQuizParticipations(partModal.quizId, newPage, 20);
+      setPartList(result?.content ?? []);
+      setPartTotalPages(result?.totalPages ?? 0);
+    } catch (err) {
+      alert(err.message || '페이지 조회 실패');
+    } finally {
+      setPartLoading(false);
+    }
+  }
+
   /** 삭제 */
   async function handleDelete(item) {
     if (busyId === item.quizId) return;
@@ -626,6 +668,9 @@ export default function QuizManagementTab({ aiModal }) {
                       <SmallButton onClick={() => openEditModal(item)} title="수정">
                         <MdEdit size={13} /> 수정
                       </SmallButton>
+                      <SmallButton onClick={() => openPartModal(item)} title="참여자 목록">
+                        <MdPeople size={13} /> 참여자
+                      </SmallButton>
                       {(STATUS_TRANSITION_BUTTONS[item.status] ?? []).map((btn) => (
                         <SmallButton
                           key={btn.target}
@@ -785,6 +830,60 @@ export default function QuizManagementTab({ aiModal }) {
               </DialogFooter>
             </form>
           </DialogBox>
+        </Overlay>
+      )}
+      {/* ── 참여자 목록 모달 ── */}
+      {partModal && (
+        <Overlay onClick={() => setPartModal(null)}>
+          <PartDialogBox onClick={(e) => e.stopPropagation()}>
+            <DialogTitle>
+              참여자 목록 — 퀴즈 #{partModal.quizId}
+              <PartSubTitle>{partModal.quizQuestion}</PartSubTitle>
+            </DialogTitle>
+            <PartMeta>총 {partTotalElements.toLocaleString()}명 참여</PartMeta>
+            {partLoading ? (
+              <CenterCell>불러오는 중...</CenterCell>
+            ) : partList.length === 0 ? (
+              <CenterCell>참여 기록이 없습니다.</CenterCell>
+            ) : (
+              <TableWrap>
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th $w="180px">사용자 ID</Th>
+                      <Th>선택 답변</Th>
+                      <Th $w="70px">정오답</Th>
+                      <Th $w="160px">제출 시각</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {partList.map((p) => (
+                      <Tr key={p.quizParticipationId}>
+                        <Td><MutedText>{p.userId}</MutedText></Td>
+                        <Td><MutedText>{p.selectedOption ?? '-'}</MutedText></Td>
+                        <Td>
+                          <CorrectPill $correct={p.isCorrect}>
+                            {p.isCorrect === true ? '정답' : p.isCorrect === false ? '오답' : '-'}
+                          </CorrectPill>
+                        </Td>
+                        <Td><MutedText>{p.submittedAt ? new Date(p.submittedAt).toLocaleString('ko-KR') : '-'}</MutedText></Td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </TableWrap>
+            )}
+            {partTotalPages > 1 && (
+              <Pagination>
+                <PageButton onClick={() => handlePartPageChange(partPage - 1)} disabled={partPage === 0}>이전</PageButton>
+                <PageInfo>{partPage + 1} / {partTotalPages}</PageInfo>
+                <PageButton onClick={() => handlePartPageChange(partPage + 1)} disabled={partPage + 1 >= partTotalPages}>다음</PageButton>
+              </Pagination>
+            )}
+            <DialogFooter>
+              <CancelButton type="button" onClick={() => setPartModal(null)}>닫기</CancelButton>
+            </DialogFooter>
+          </PartDialogBox>
         </Overlay>
       )}
     </Container>
@@ -1278,4 +1377,39 @@ const ClientFilterResetButton = styled.button`
     color: ${({ theme }) => theme.colors.textPrimary};
     border-color: ${({ theme }) => theme.colors.primary};
   }
+`;
+
+/* ── 참여자 모달 전용 styled-components ── */
+
+const PartDialogBox = styled(DialogBox)`
+  max-width: 760px;
+`;
+
+const PartSubTitle = styled.div`
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.regular};
+  color: ${({ theme }) => theme.colors.textMuted};
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+`;
+
+const PartMeta = styled.div`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  margin-bottom: ${({ theme }) => theme.spacing.sm};
+`;
+
+const CorrectPill = styled.span`
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  border-radius: 10px;
+  background: ${({ $correct }) =>
+    $correct === true ? '#10b98122' : $correct === false ? '#ef444422' : '#88888822'};
+  color: ${({ $correct }) =>
+    $correct === true ? '#10b981' : $correct === false ? '#ef4444' : '#888'};
 `;
