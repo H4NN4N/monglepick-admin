@@ -50,6 +50,7 @@ import {
   MdPayment,
   MdGavel,
   MdAdminPanelSettings,
+  MdContentCopy,
 } from 'react-icons/md';
 import {
   fetchUserDetail,
@@ -63,6 +64,12 @@ import {
 import { fetchAuditLogs } from '@/features/settings/api/settingsApi';
 import StatusBadge from '@/shared/components/StatusBadge';
 import UserActionModal from './UserActionModal';
+import {
+  formatHistorySummary,
+  getDisplayEmail,
+  getUserDisplayName,
+  isWithdrawnUser,
+} from '../utils/userDisplay';
 
 /** 날짜 포맷 헬퍼: ISO → YYYY.MM.DD HH:MM */
 function formatDate(dateStr) {
@@ -81,6 +88,7 @@ const STATUS_BADGE = {
   ACTIVE:    { status: 'success', label: '활성' },
   SUSPENDED: { status: 'error',   label: '정지' },
   LOCKED:    { status: 'warning', label: '잠금' },
+  WITHDRAWN: { status: 'default', label: '탈퇴' },
 };
 
 /** 역할 → StatusBadge 매핑 */
@@ -458,14 +466,27 @@ export default function UserDetailPanel({
     onRefresh?.();
   }
 
+  async function copyUserId() {
+    if (!detail?.userId) return;
+    try {
+      await navigator.clipboard?.writeText(detail.userId);
+    } catch {
+      // Clipboard API를 사용할 수 없는 환경에서는 조용히 무시한다.
+    }
+  }
+
   /* ── 렌더링 ── */
+  const withdrawnUser = isWithdrawnUser(detail);
+  const statusBadge = withdrawnUser
+    ? STATUS_BADGE.WITHDRAWN
+    : STATUS_BADGE[detail?.status] ?? { status: 'default', label: detail?.status ?? '-' };
 
   return (
     <Panel>
       {/* ── 패널 헤더 (sticky) ── */}
       <PanelHeader>
         <PanelTitle>
-          {detailLoading ? '불러오는 중...' : (detail?.nickname ?? detail?.email ?? '사용자 상세')}
+          {detailLoading ? '불러오는 중...' : getUserDisplayName(detail)}
         </PanelTitle>
         <CloseButton onClick={onClose} title="닫기">
           <MdClose size={18} />
@@ -495,12 +516,23 @@ export default function UserDetailPanel({
             </SectionTitle>
             <ProfileGrid>
               <MetaItem>
+                <MetaLabel>userId</MetaLabel>
+                <MetaValueRow>
+                  <MetaMono title={detail.userId}>{detail.userId ?? '-'}</MetaMono>
+                  {detail.userId && (
+                    <CopyButton type="button" onClick={copyUserId} title="userId 복사">
+                      <MdContentCopy size={13} />
+                    </CopyButton>
+                  )}
+                </MetaValueRow>
+              </MetaItem>
+              <MetaItem>
                 <MetaLabel>닉네임</MetaLabel>
                 <MetaValue>{detail.nickname ?? '-'}</MetaValue>
               </MetaItem>
               <MetaItem>
                 <MetaLabel>이메일</MetaLabel>
-                <MetaValue title={detail.email}>{detail.email ?? '-'}</MetaValue>
+                <MetaValue title={getDisplayEmail(detail)}>{getDisplayEmail(detail)}</MetaValue>
               </MetaItem>
               <MetaItem>
                 <MetaLabel>역할</MetaLabel>
@@ -512,8 +544,8 @@ export default function UserDetailPanel({
               <MetaItem>
                 <MetaLabel>상태</MetaLabel>
                 <StatusBadge
-                  status={STATUS_BADGE[detail.status]?.status ?? 'default'}
-                  label={STATUS_BADGE[detail.status]?.label ?? (detail.status ?? '-')}
+                  status={statusBadge.status}
+                  label={statusBadge.label}
                 />
               </MetaItem>
               <MetaItem>
@@ -524,8 +556,53 @@ export default function UserDetailPanel({
                 <MetaLabel>최근 로그인</MetaLabel>
                 <MetaValue>{formatDate(detail.lastLoginAt)}</MetaValue>
               </MetaItem>
+              {withdrawnUser && (
+                <MetaItem>
+                  <MetaLabel>탈퇴 일시</MetaLabel>
+                  <MetaValue>{formatDate(detail.deletedAt)}</MetaValue>
+                </MetaItem>
+              )}
             </ProfileGrid>
           </Section>
+
+          {withdrawnUser && (
+            <Section>
+              <SectionTitle>탈퇴 회원 식별 정보</SectionTitle>
+              <WithdrawnNotice>
+                탈퇴 회원은 이메일 대신 userId, 탈퇴/가입/최근 로그인 일시와 활동·결제·문의 이력으로 식별합니다.
+                identity_hash는 복원 불가한 내부 값이므로 화면에 표시하지 않습니다.
+              </WithdrawnNotice>
+              <IdentityGrid>
+                <IdentityItem>
+                  <MetaLabel>userId</MetaLabel>
+                  <MetaValueRow>
+                    <MetaMono title={detail.userId}>{detail.userId ?? '-'}</MetaMono>
+                    {detail.userId && (
+                      <CopyButton type="button" onClick={copyUserId} title="userId 복사">
+                        <MdContentCopy size={13} />
+                      </CopyButton>
+                    )}
+                  </MetaValueRow>
+                </IdentityItem>
+                <IdentityItem>
+                  <MetaLabel>탈퇴 일시</MetaLabel>
+                  <MetaValue>{formatDate(detail.deletedAt)}</MetaValue>
+                </IdentityItem>
+                <IdentityItem>
+                  <MetaLabel>가입 일시</MetaLabel>
+                  <MetaValue>{formatDate(detail.createdAt)}</MetaValue>
+                </IdentityItem>
+                <IdentityItem>
+                  <MetaLabel>최근 로그인</MetaLabel>
+                  <MetaValue>{formatDate(detail.lastLoginAt)}</MetaValue>
+                </IdentityItem>
+                <IdentityItem $wide>
+                  <MetaLabel>이력 요약</MetaLabel>
+                  <MetaValue>{formatHistorySummary(detail)}</MetaValue>
+                </IdentityItem>
+              </IdentityGrid>
+            </Section>
+          )}
 
           {/* 2. 포인트 / 등급 섹션 */}
           <Section>
@@ -575,13 +652,23 @@ export default function UserDetailPanel({
                 $variant="primary"
                 onClick={() => setModalMode('role')}
                 title="역할 변경"
+                disabled={withdrawnUser}
               >
                 <MdEdit size={14} />
                 역할 변경
               </ActionButton>
 
               {/* 계정 정지 / 복구 버튼 (상태에 따라 토글) */}
-              {detail.status === 'SUSPENDED' ? (
+              {withdrawnUser ? (
+                <ActionButton
+                  $variant="success"
+                  onClick={() => setModalMode('activate')}
+                  title="탈퇴 계정 복구"
+                >
+                  <MdCheckCircle size={14} />
+                  탈퇴 계정 복구
+                </ActionButton>
+              ) : detail.status === 'SUSPENDED' ? (
                 <ActionButton
                   $variant="success"
                   onClick={() => setModalMode('activate')}
@@ -616,6 +703,7 @@ export default function UserDetailPanel({
                 $variant="primary"
                 onClick={() => setModalMode('points')}
                 title="수동 포인트 지급/회수"
+                disabled={withdrawnUser}
               >
                 포인트 조정
               </ActionButton>
@@ -625,6 +713,7 @@ export default function UserDetailPanel({
                 $variant="primary"
                 onClick={() => setModalMode('grant-tokens')}
                 title="수동 AI 이용권 발급"
+                disabled={withdrawnUser}
               >
                 이용권 발급
               </ActionButton>
@@ -632,6 +721,11 @@ export default function UserDetailPanel({
             {/* 관리자 계정 정지 불가 안내 */}
             {detail.userRole === 'ADMIN' && detail.status !== 'SUSPENDED' && (
               <AdminNotice>관리자 계정은 정지할 수 없습니다.</AdminNotice>
+            )}
+            {withdrawnUser && (
+              <AdminNotice>
+                탈퇴 회원은 정지, 포인트 지급, 권한 변경, 이용권 발급 같은 일반 계정 관리 액션이 제한됩니다.
+              </AdminNotice>
             )}
           </Section>
 
@@ -886,6 +980,15 @@ export default function UserDetailPanel({
           email:    detail.email,
           userRole: detail.userRole,
           status:   detail.status,
+          isDeleted: detail.isDeleted,
+          deletedAt: detail.deletedAt,
+          createdAt: detail.createdAt,
+          lastLoginAt: detail.lastLoginAt,
+          postCount: detail.postCount,
+          reviewCount: detail.reviewCount,
+          commentCount: detail.commentCount,
+          paymentCount: detail.paymentCount,
+          ticketCount: detail.ticketCount,
         } : null}
         onClose={() => setModalMode(null)}
         onSuccess={handleActionSuccess}
@@ -1015,6 +1118,57 @@ const MetaValue = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+`;
+
+const MetaValueRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.xs};
+  min-width: 0;
+`;
+
+const MetaMono = styled(MetaValue)`
+  font-family: ${({ theme }) => theme.fonts.mono};
+  min-width: 0;
+`;
+
+const CopyButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 4px;
+  color: ${({ theme }) => theme.colors.textMuted};
+  flex-shrink: 0;
+  transition: all ${({ theme }) => theme.transitions.fast};
+
+  &:hover {
+    color: ${({ theme }) => theme.colors.primary};
+    border-color: ${({ theme }) => theme.colors.primary};
+    background: ${({ theme }) => theme.colors.primaryLight};
+  }
+`;
+
+const WithdrawnNotice = styled.p`
+  margin: 0 0 ${({ theme }) => theme.spacing.md} 0;
+  padding: ${({ theme }) => theme.spacing.sm} ${({ theme }) => theme.spacing.md};
+  border-radius: 4px;
+  background: ${({ theme }) => theme.colors.bgHover};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  line-height: 1.5;
+`;
+
+const IdentityGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: ${({ theme }) => theme.spacing.md};
+`;
+
+const IdentityItem = styled(MetaItem)`
+  grid-column: ${({ $wide }) => $wide ? '1 / -1' : 'auto'};
 `;
 
 /** 통계 카드 행 */
