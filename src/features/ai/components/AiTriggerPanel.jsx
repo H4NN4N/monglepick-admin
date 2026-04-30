@@ -3,7 +3,8 @@
  * 퀴즈 생성 폼(장르, 난이도, 수량)을 카드 형태로 표시.
  *
  * 2026-04-08: AI 리뷰 생성 기능 제거.
- * 2026-04-29: "오늘 퀴즈 강제 발행" 카드 추가 — QuizPublishScheduler.manualPublish() 호출.
+ * 2026-04-29: "오늘 퀴즈 강제 발행" 카드 추가.
+ * 2026-04-30: "영화 선택 생성" 탭 추가 — 관리자가 영화를 직접 고르면 줄거리 기반 퀴즈 생성.
  *
  * @param {Object} props - 없음 (자체 상태 관리)
  */
@@ -17,8 +18,10 @@ import {
   MdCampaign,
   MdArrowForward,
   MdCheckCircle,
+  MdMovie,
 } from 'react-icons/md';
 import StatusBadge from '@/shared/components/StatusBadge';
+import MovieSearchPicker from '@/shared/components/MovieSearchPicker';
 import { generateQuiz, publishQuizNow } from '../api/aiApi';
 
 /**
@@ -51,55 +54,84 @@ const DIFFICULTY_OPTIONS = [
   { value: 'hard',   label: '어려움' },
 ];
 
+/** 영화 선택 생성 모드 퀴즈 유형 옵션 */
+const QUIZ_TYPE_OPTIONS = [
+  { value: 'plot',     label: '줄거리' },
+  { value: 'cast',     label: '출연진' },
+  { value: 'director', label: '감독' },
+  { value: 'genre',    label: '장르' },
+];
+
 export default function AiTriggerPanel() {
   /* React Router navigate — "콘텐츠 이벤트 → 퀴즈 탭(?tab=quiz)" 이동 시 사용 */
   const navigate = useNavigate();
 
-  /* ── 퀴즈 생성 폼 상태 ── */
+  /* ── 퀴즈 생성 탭 (자동 / 영화 선택) ── */
+  const [quizMode, setQuizMode] = useState('auto'); // 'auto' | 'manual'
+
+  /* ── 자동 생성 폼 상태 ── */
   const [quizGenre, setQuizGenre] = useState('');
   const [quizDifficulty, setQuizDifficulty] = useState('medium');
   const [quizCount, setQuizCount] = useState(5);
+
+  /* ── 영화 선택 생성 폼 상태 ── */
+  const [selectedMovie, setSelectedMovie] = useState(null);
+  const [manualQuizType, setManualQuizType] = useState('plot');
+  const [manualDifficulty, setManualDifficulty] = useState('medium');
+
+  /* ── 공통 퀴즈 생성 상태 ── */
   const [quizLoading, setQuizLoading] = useState(false);
   const [quizResult, setQuizResult] = useState(null); // { status, message }
   /**
    * 직전 생성 응답의 quizzes 배열 (GeneratedQuizItem[]).
    * 운영자가 즉시 결과를 확인하고 검수/이동 결정을 내릴 수 있도록 카드 형태로 노출한다.
-   * 새 호출 시 비워지고, 실패 시에도 빈 배열로 초기화된다.
    */
   const [generatedQuizzes, setGeneratedQuizzes] = useState([]);
 
-  /* ── 오늘 퀴즈 강제 발행 상태 (2026-04-29) ── */
+  /* ── 오늘 퀴즈 강제 발행 상태 ── */
   const [publishLoading, setPublishLoading] = useState(false);
   const [publishResult, setPublishResult] = useState(null); // { status, message }
 
-  /** 퀴즈 생성 실행 */
-  async function handleQuizGenerate() {
+  /** 퀴즈 생성 공통 핸들러 */
+  async function _runGenerate(payload) {
     setQuizLoading(true);
     setQuizResult(null);
-    setGeneratedQuizzes([]); // 직전 결과 클리어
+    setGeneratedQuizzes([]);
     try {
-      const result = await generateQuiz({
-        genre: quizGenre || undefined,
-        difficulty: quizDifficulty,
-        count: Number(quizCount),
-      });
+      const result = await generateQuiz(payload);
       const items = Array.isArray(result?.quizzes) ? result.quizzes : [];
       setGeneratedQuizzes(items);
-      /* 후보 0건 / LLM 실패 시 서버가 message 로 사유를 내려준다 → 운영자 안내 강화 */
       const generatedCount = result?.count ?? items.length;
-      const isSuccess = (result?.success ?? generatedCount > 0);
+      const isSuccess = result?.success ?? generatedCount > 0;
       setQuizResult({
         status: isSuccess ? 'success' : 'warning',
-        message: result?.message
-          || (isSuccess
-            ? `퀴즈 ${generatedCount}개 생성 완료`
-            : '퀴즈가 생성되지 않았습니다.'),
+        message: result?.message || (isSuccess ? `퀴즈 ${generatedCount}개 생성 완료` : '퀴즈가 생성되지 않았습니다.'),
       });
     } catch (err) {
       setQuizResult({ status: 'error', message: err.message });
     } finally {
       setQuizLoading(false);
     }
+  }
+
+  /** 자동 생성 실행 */
+  function handleQuizGenerate() {
+    _runGenerate({
+      genre: quizGenre || undefined,
+      difficulty: quizDifficulty,
+      count: Number(quizCount),
+    });
+  }
+
+  /** 영화 선택 생성 실행 */
+  function handleManualGenerate() {
+    if (!selectedMovie) return;
+    _runGenerate({
+      movieId: selectedMovie.movieId,
+      quizType: manualQuizType,
+      difficulty: manualDifficulty,
+      count: 1,
+    });
   }
 
   /**
@@ -154,69 +186,128 @@ export default function AiTriggerPanel() {
             </CardIcon>
             <div>
               <CardTitle>퀴즈 생성</CardTitle>
-              <CardDesc>AI가 영화 퀴즈를 자동 생성합니다.</CardDesc>
+              <CardDesc>AI가 영화 퀴즈를 생성합니다.</CardDesc>
             </div>
           </CardHeader>
 
-          <FieldGroup>
-            <FieldLabel>장르</FieldLabel>
-            <StyledSelect
-              value={quizGenre}
-              onChange={(e) => setQuizGenre(e.target.value)}
-            >
-              {GENRE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </StyledSelect>
-          </FieldGroup>
+          {/* 생성 모드 탭 */}
+          <TabRow>
+            <TabBtn $active={quizMode === 'auto'} type="button" onClick={() => { setQuizMode('auto'); setQuizResult(null); setGeneratedQuizzes([]); }}>
+              자동 생성
+            </TabBtn>
+            <TabBtn $active={quizMode === 'manual'} type="button" onClick={() => { setQuizMode('manual'); setQuizResult(null); setGeneratedQuizzes([]); }}>
+              <MdMovie size={13} style={{ marginRight: 4 }} />
+              영화 선택 생성
+            </TabBtn>
+          </TabRow>
 
-          <FieldGroup>
-            <FieldLabel>난이도</FieldLabel>
-            <RadioRow>
-              {DIFFICULTY_OPTIONS.map((opt) => (
-                <RadioLabel key={opt.value}>
-                  <RadioInput
-                    type="radio"
-                    name="quiz-difficulty"
-                    value={opt.value}
-                    checked={quizDifficulty === opt.value}
-                    onChange={() => setQuizDifficulty(opt.value)}
+          {/* ── 자동 생성 폼 ── */}
+          {quizMode === 'auto' && (
+            <>
+              <FieldGroup>
+                <FieldLabel>장르</FieldLabel>
+                <StyledSelect value={quizGenre} onChange={(e) => setQuizGenre(e.target.value)}>
+                  {GENRE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </StyledSelect>
+              </FieldGroup>
+
+              <FieldGroup>
+                <FieldLabel>난이도</FieldLabel>
+                <RadioRow>
+                  {DIFFICULTY_OPTIONS.map((opt) => (
+                    <RadioLabel key={opt.value}>
+                      <RadioInput
+                        type="radio"
+                        name="quiz-difficulty"
+                        value={opt.value}
+                        checked={quizDifficulty === opt.value}
+                        onChange={() => setQuizDifficulty(opt.value)}
+                      />
+                      {opt.label}
+                    </RadioLabel>
+                  ))}
+                </RadioRow>
+              </FieldGroup>
+
+              <FieldGroup>
+                <FieldLabel>생성 수량</FieldLabel>
+                <NumberRow>
+                  <NumberInput
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={quizCount}
+                    onChange={(e) => setQuizCount(Math.max(1, Math.min(50, Number(e.target.value))))}
                   />
-                  {opt.label}
-                </RadioLabel>
-              ))}
-            </RadioRow>
-          </FieldGroup>
+                  <NumberUnit>개</NumberUnit>
+                </NumberRow>
+              </FieldGroup>
+            </>
+          )}
 
-          <FieldGroup>
-            <FieldLabel>생성 수량</FieldLabel>
-            <NumberRow>
-              <NumberInput
-                type="number"
-                min={1}
-                max={50}
-                value={quizCount}
-                onChange={(e) => setQuizCount(Math.max(1, Math.min(50, Number(e.target.value))))}
-              />
-              <NumberUnit>개</NumberUnit>
-            </NumberRow>
-          </FieldGroup>
+          {/* ── 영화 선택 생성 폼 ── */}
+          {quizMode === 'manual' && (
+            <>
+              <FieldGroup>
+                <FieldLabel>영화 선택</FieldLabel>
+                <MovieSearchPicker
+                  selectedMovie={selectedMovie}
+                  onChange={setSelectedMovie}
+                  placeholder="영화 제목으로 검색"
+                  disabled={quizLoading}
+                />
+              </FieldGroup>
+
+              <FieldGroup>
+                <FieldLabel>퀴즈 유형</FieldLabel>
+                <RadioRow>
+                  {QUIZ_TYPE_OPTIONS.map((opt) => (
+                    <RadioLabel key={opt.value}>
+                      <RadioInput
+                        type="radio"
+                        name="manual-quiz-type"
+                        value={opt.value}
+                        checked={manualQuizType === opt.value}
+                        onChange={() => setManualQuizType(opt.value)}
+                      />
+                      {opt.label}
+                    </RadioLabel>
+                  ))}
+                </RadioRow>
+              </FieldGroup>
+
+              <FieldGroup>
+                <FieldLabel>난이도</FieldLabel>
+                <RadioRow>
+                  {DIFFICULTY_OPTIONS.map((opt) => (
+                    <RadioLabel key={opt.value}>
+                      <RadioInput
+                        type="radio"
+                        name="manual-difficulty"
+                        value={opt.value}
+                        checked={manualDifficulty === opt.value}
+                        onChange={() => setManualDifficulty(opt.value)}
+                      />
+                      {opt.label}
+                    </RadioLabel>
+                  ))}
+                </RadioRow>
+              </FieldGroup>
+
+              {!selectedMovie && (
+                <ManualHint>영화를 선택하면 해당 영화를 기반으로 퀴즈 1건이 생성됩니다.</ManualHint>
+              )}
+            </>
+          )}
 
           {quizResult && (
             <ResultRow>
-              <StatusBadge
-                status={quizResult.status}
-                label={quizResult.message}
-              />
+              <StatusBadge status={quizResult.status} label={quizResult.message} />
             </ResultRow>
           )}
 
-          {/*
-            ── 생성된 퀴즈 미리보기 (2026-04-29) ──
-            서버 응답의 quizzes 배열을 카드 형태로 즉시 노출한다.
-            정답은 ✓ 아이콘 + 강조 색으로 표시하고, 해설은 보조 텍스트로 둔다.
-            5건 초과 시에도 모두 노출 — 검수 결정에 필요한 정보이므로 truncate 하지 않는다.
-          */}
           {generatedQuizzes.length > 0 && (
             <PreviewBlock>
               <PreviewHeader>
@@ -256,7 +347,6 @@ export default function AiTriggerPanel() {
                 ))}
               </PreviewList>
 
-              {/* 검수 화면(콘텐츠/이벤트 → 퀴즈 탭) 으로 즉시 이동 */}
               <NavigateButton onClick={handleGoToQuizTab} type="button">
                 <MdArrowForward size={14} />
                 퀴즈 검수 탭으로 이동
@@ -265,12 +355,12 @@ export default function AiTriggerPanel() {
           )}
 
           <RunButton
-            onClick={handleQuizGenerate}
-            disabled={quizLoading}
+            onClick={quizMode === 'manual' ? handleManualGenerate : handleQuizGenerate}
+            disabled={quizLoading || (quizMode === 'manual' && !selectedMovie)}
             $color="#6366f1"
           >
             <MdPlayArrow size={16} />
-            {quizLoading ? '생성 중...' : '퀴즈 생성 실행'}
+            {quizLoading ? '생성 중...' : (quizMode === 'manual' ? '선택 영화로 퀴즈 생성' : '퀴즈 생성 실행')}
           </RunButton>
         </TriggerCard>
 
@@ -323,6 +413,41 @@ export default function AiTriggerPanel() {
 }
 
 /* ── styled-components ── */
+
+const TabRow = styled.div`
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+  margin-bottom: -${({ theme }) => theme.spacing.sm};
+  padding-bottom: ${({ theme }) => theme.spacing.xs};
+`;
+
+const TabBtn = styled.button`
+  display: flex;
+  align-items: center;
+  padding: ${({ theme }) => theme.spacing.xs} ${({ theme }) => theme.spacing.md};
+  border-radius: 6px 6px 0 0;
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  color: ${({ $active, theme }) => $active ? theme.colors.primary : theme.colors.textMuted};
+  background: ${({ $active, theme }) => $active ? `${theme.colors.primary}10` : 'transparent'};
+  border-bottom: 2px solid ${({ $active, theme }) => $active ? theme.colors.primary : 'transparent'};
+  transition: all ${({ theme }) => theme.transitions.fast};
+
+  &:hover {
+    color: ${({ theme }) => theme.colors.primary};
+    background: ${({ theme }) => `${theme.colors.primary}08`};
+  }
+`;
+
+const ManualHint = styled.p`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.textMuted};
+  text-align: center;
+  padding: ${({ theme }) => theme.spacing.sm};
+  background: ${({ theme }) => theme.colors.bgHover};
+  border-radius: 6px;
+`;
 
 const Section = styled.div`
   margin-bottom: ${({ theme }) => theme.spacing.xxl};

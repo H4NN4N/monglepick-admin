@@ -102,21 +102,7 @@ export default function ChartDataCard({ data }) {
     });
   }, [data]);
 
-  if (!data || rechartsData.length === 0) return null;
-
-  const {
-    tool_name,
-    title,
-    chart_type,
-    unit,
-    series = [],
-    total_points,
-    truncated,
-    navigate_path,
-  } = data;
-
-  const isBar = chart_type === 'bar';
-  const isPie = chart_type === 'pie';
+  const isPie = data?.chart_type === 'pie';
 
   /**
    * pie 차트 입력은 line/bar 와 데이터 형태가 달라 별도 변환.
@@ -132,6 +118,21 @@ export default function ChartDataCard({ data }) {
       .map((name, i) => ({ name: String(name), value: vals[i] }))
       .filter((d) => d.value !== null && d.value !== undefined);
   }, [data, isPie]);
+
+  if (!data || rechartsData.length === 0) return null;
+
+  const {
+    tool_name,
+    title,
+    chart_type,
+    unit,
+    series = [],
+    total_points,
+    truncated,
+    navigate_path,
+  } = data;
+
+  const isBar = chart_type === 'bar';
 
   /** Y축 값 포맷 — 단위가 "원" 이면 천단위 콤마, 그 외 숫자만. */
   const formatY = (value) => {
