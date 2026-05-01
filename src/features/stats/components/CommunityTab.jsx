@@ -288,20 +288,28 @@ export default function CommunityTab() {
                     dataKey="count"
                     nameKey="label"
                     cx="50%"
-                    cy="50%"
-                    outerRadius={100}
-                    label={({ name, percentage }) => `${name} ${percentage}%`}
-                    labelLine={true}
+                    cy="45%"
+                    innerRadius={60}
+                    outerRadius={95}
+                    paddingAngle={3}
                   >
                     {statusDist.map((item) => (
-                      <Cell key={item.status} fill={STATUS_COLORS[item.status] || '#94a3b8'} />
+                      <Cell key={item.status} fill={STATUS_COLORS[item.status.toLowerCase()] || '#94a3b8'} />
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value, name) => [`${fmt(value)}건`, name]}
+                    formatter={(value, name, props) => [
+                      `${fmt(value)}건 (${Number(props.payload.percentage).toFixed(1)}%)`,
+                      name,
+                    ]}
                     contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px' }}
                   />
-                  <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }} />
+                  <Legend
+                    formatter={(value, entry) =>
+                      `${value} ${Number(entry.payload.percentage).toFixed(1)}%`
+                    }
+                    wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             )}
