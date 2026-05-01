@@ -186,7 +186,7 @@ const SWAGGER_TOOLS = [
     purpose: '인증/포인트/결제/추천/Admin 등 Backend 전체 REST API 명세',
     tips: [
       '상단 `Select a definition` 드롭다운이 있으면 `v1` 선택',
-      '`/api/v1/auth/login` 으로 JWT 발급 후 우측 상단 Authorize 버튼에 `Bearer <token>` 입력',
+      '`/api/v1/admin/auth/login` 으로 관리자 JWT 발급 후 우측 상단 Authorize 버튼에 `Bearer <token>` 입력',
       'Admin API 는 `user_role = ADMIN` 계정 토큰 필요',
     ],
   },
