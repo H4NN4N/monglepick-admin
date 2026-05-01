@@ -23,7 +23,7 @@ import useThemeStore from '../stores/useThemeStore';
 import { media } from '../styles/media';
 
 export default function AdminLayout() {
-  const user = useAuthStore((s) => s.user);
+  const user = useAuthStore((s) => s.adminUser);
   const logout = useAuthStore((s) => s.logout);
   const mode = useThemeStore((s) => s.mode);
   const toggleMode = useThemeStore((s) => s.toggleMode);

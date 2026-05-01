@@ -125,7 +125,7 @@ export function resetLotteryCycle(lotteryId) {
  *
  * <p>축약 fetch 가 아닌 raw fetch — 바이너리 응답을 Blob 으로 받아 a[download] 트릭으로 다운로드.
  * backendApi(axios) 인터셉터가 ApiResponse 래퍼 처리에 특화돼 있어 fetch 로 우회한다.
- * JWT 는 axios 와 동일하게 localStorage 의 admin_access_token 을 사용한다.</p>
+ * JWT 는 axios 와 동일하게 관리자 전용 `adminAccessToken` 을 사용한다.</p>
  *
  * @param {number|string} lotteryId
  * @param {string} [status]   응모 결과 필터 (보통 'WON')

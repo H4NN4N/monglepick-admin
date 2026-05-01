@@ -12,7 +12,7 @@
  */
 
 import axios from 'axios';
-import { getToken, setToken, removeToken, clearAll } from '../utils/storage';
+import { getToken, setToken, setUser, removeToken, clearAll } from '../utils/storage';
 import { AUTH_ENDPOINTS } from '../constants/api';
 import { SERVICE_URLS } from './serviceUrls';
 import useAuthStore from '../stores/useAuthStore';
@@ -75,7 +75,15 @@ async function refreshAccessToken() {
     { headers: { 'Content-Type': 'application/json' }, withCredentials: true },
   );
   const { accessToken } = response.data;
-  if (accessToken) setToken(accessToken);
+  const { user } = response.data;
+  if (accessToken) {
+    setToken(accessToken);
+    if (user) setUser(user);
+    useAuthStore.setState({
+      adminAccessToken: accessToken,
+      ...(user ? { adminUser: user } : {}),
+    });
+  }
   return accessToken;
 }
 
@@ -154,7 +162,10 @@ backendApi.interceptors.request.use(async (config) => {
     } catch (err) {
       processQueue(err, null);
       clearAll();
-      useAuthStore.setState({ token: null, user: null });
+      useAuthStore.setState({
+        adminAccessToken: null,
+        adminUser: null,
+      });
     } finally {
       isRefreshing = false;
     }
@@ -205,7 +216,10 @@ backendApi.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError, null);
         clearAll();
-        useAuthStore.setState({ token: null, user: null });
+        useAuthStore.setState({
+          adminAccessToken: null,
+          adminUser: null,
+        });
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

@@ -16,8 +16,8 @@ const ADMIN = `${API_VERSION}/admin`;
 export const AUTH_ENDPOINTS = {
   /** 관리자 전용 로그인 — 백엔드에서 ADMIN role 검증 후 JWT 발급 (일반 유저 403 차단) */
   LOGIN: `${API_VERSION}/admin/auth/login`,
-  REFRESH: `/jwt/refresh`,
-  LOGOUT: `${API_VERSION}/auth/logout`,
+  REFRESH: `${API_VERSION}/admin/auth/refresh`,
+  LOGOUT: `${API_VERSION}/admin/auth/logout`,
 };
 
 /* ── 시스템 (윤형주) ── */
