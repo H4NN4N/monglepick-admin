@@ -1,6 +1,6 @@
 /**
  * 관리자 로그인 페이지.
- * 일반 로그인 폼 (이메일 + 비밀번호) → ADMIN 역할 검증.
+ * 관리자 전용 로그인 폼 (이메일 + 비밀번호).
  */
 
 import { useState } from 'react';
@@ -31,7 +31,7 @@ export default function LoginPage() {
    * 공통 로그인 처리.
    *
    * <p>일반 폼 제출과 "테스트 관리자 로그인" 버튼이 동일한 경로를 타도록 추출했다.
-   * Backend `/api/v1/auth/login` 에서 ADMIN role 검증 후 JWT 발급, 실패 시 메시지 표시.</p>
+   * Backend `/api/v1/admin/auth/login` 에서 관리자 accessToken 과 adminRefreshToken 쿠키를 발급한다.</p>
    */
   const performLogin = async (loginEmail, loginPassword) => {
     setError('');
@@ -43,7 +43,7 @@ export default function LoginPage() {
         password: loginPassword,
       });
 
-      /* Zustand + localStorage 저장 */
+      /* Zustand + localStorage(adminAccessToken/adminUser) 저장 */
       login({ accessToken: data.accessToken, user: data.user });
       navigate(ADMIN_ROUTES.DASHBOARD, { replace: true });
     } catch (err) {

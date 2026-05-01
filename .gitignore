@@ -42,3 +42,8 @@ coverage/
 Thumbs.db
 CLAUDE.md
 .env.production
+
+
+
+#CODEX
+AGENT.md

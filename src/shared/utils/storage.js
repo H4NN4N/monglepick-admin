@@ -1,13 +1,15 @@
 /**
  * localStorage 래퍼 유틸리티 (관리자용).
- * monglepick-client의 storage.js 패턴과 동일.
- * 관리자 전용 키 접두사(monglepick_admin_)로 사용자 세션과 분리.
+ * 관리자 전용 키(adminAccessToken/adminUser)로 사용자 세션과 분리.
  */
 
-/** 관리자 인증 토큰 저장 키 */
-const TOKEN_KEY = 'monglepick_admin_token';
-/** 관리자 사용자 정보 저장 키 */
-const USER_KEY = 'monglepick_admin_user';
+/** 관리자 인증 토큰 저장 키 — 사용자 페이지 accessToken 과 분리 */
+const TOKEN_KEY = 'adminAccessToken';
+/** 관리자 사용자 정보 저장 키 — 사용자 페이지 user 와 분리 */
+const USER_KEY = 'adminUser';
+/** 구버전 관리자 키. 새 키 사용 후 정리한다. */
+const LEGACY_TOKEN_KEY = 'monglepick_admin_token';
+const LEGACY_USER_KEY = 'monglepick_admin_user';
 
 /**
  * localStorage에서 값을 안전하게 가져온다.
@@ -72,7 +74,7 @@ function decodeJwtPayloadUnsafe(token) {
  *
  * 2026-04-23 재발방지 가드: 토큰이 있어도 payload.role 이 'ADMIN' 이 아니면 null 리턴.
  * 배경 — 같은 브라우저에서 Client(유저)와 Admin(관리자)을 동시에 로그인한 상태에서
- * 드물게 `monglepick_admin_token` 슬롯에 유저 토큰이 들어가 있는 케이스가 관찰됐다.
+ * 드물게 관리자 토큰 슬롯에 유저 토큰이 들어가 있는 케이스가 관찰됐다.
  * Admin 의 모든 outbound 요청이 이 함수를 통해 토큰을 얻으므로, 여기서 role 검증을
  * 한 번 더 하면 유저 토큰이 혼입됐을 때도 401 이 나 재로그인이 유도된다.
  *
@@ -81,6 +83,7 @@ function decodeJwtPayloadUnsafe(token) {
  */
 export function getToken() {
   const raw = safeGetItem(TOKEN_KEY);
+  if (safeGetItem(LEGACY_TOKEN_KEY)) safeRemoveItem(LEGACY_TOKEN_KEY);
   if (!raw) return null;
   const payload = decodeJwtPayloadUnsafe(raw);
   if (!payload) {
@@ -104,14 +107,17 @@ export function getToken() {
 }
 export function setToken(token) {
   safeSetItem(TOKEN_KEY, token);
+  safeRemoveItem(LEGACY_TOKEN_KEY);
 }
 export function removeToken() {
   safeRemoveItem(TOKEN_KEY);
+  safeRemoveItem(LEGACY_TOKEN_KEY);
 }
 
 // ── 사용자 정보 ──
 export function getUser() {
   const json = safeGetItem(USER_KEY);
+  if (safeGetItem(LEGACY_USER_KEY)) safeRemoveItem(LEGACY_USER_KEY);
   if (!json) return null;
   try {
     return JSON.parse(json);
@@ -122,12 +128,14 @@ export function getUser() {
 export function setUser(user) {
   try {
     safeSetItem(USER_KEY, JSON.stringify(user));
+    safeRemoveItem(LEGACY_USER_KEY);
   } catch {
     // 직렬화 실패 무시
   }
 }
 export function removeUser() {
   safeRemoveItem(USER_KEY);
+  safeRemoveItem(LEGACY_USER_KEY);
 }
 
 /**
