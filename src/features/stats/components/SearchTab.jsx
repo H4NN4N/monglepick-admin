@@ -405,6 +405,7 @@ export default function SearchTab() {
                 <Th style={{ width: '60px' }}>번호</Th>
                 <Th>키워드</Th>
                 <Th style={{ textAlign: 'right' }}>검색 수</Th>
+                <Th style={{ textAlign: 'right' }}>검색 세션 수</Th>
                 <Th style={{ textAlign: 'right' }}>검색 결과</Th>
                 <Th style={{ textAlign: 'right' }}>전환율</Th>
                 <Th style={{ width: '180px', textAlign: 'right' }}>상세보기</Th>
@@ -413,13 +414,13 @@ export default function SearchTab() {
             <tbody>
               {historyKeywordsLoading ? (
                 <tr>
-                  <Td colSpan={6} style={{ textAlign: 'center' }}>
+                  <Td colSpan={7} style={{ textAlign: 'center' }}>
                     데이터를 불러오는 중...
                   </Td>
                 </tr>
               ) : historyKeywords.length === 0 ? (
                 <tr>
-                  <Td colSpan={6} style={{ textAlign: 'center' }}>
+                  <Td colSpan={7} style={{ textAlign: 'center' }}>
                     검색어 데이터가 없습니다.
                   </Td>
                 </tr>
@@ -434,6 +435,9 @@ export default function SearchTab() {
                     </Td>
                     <Td style={{ textAlign: 'right' }}>
                       {fmt(kw.searchCount)}
+                    </Td>
+                    <Td style={{ textAlign: 'right' }}>
+                      {fmt(kw.sessionCount)}
                     </Td>
                     <Td style={{ textAlign: 'right' }}>
                       {fmt(kw.resultCount)}
