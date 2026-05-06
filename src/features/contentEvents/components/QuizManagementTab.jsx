@@ -17,7 +17,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
-import { MdRefresh, MdAdd, MdEdit, MdDelete, MdPeople } from 'react-icons/md';
+import { MdRefresh, MdAdd, MdEdit, MdDelete, MdPeople, MdPublish } from 'react-icons/md';
 import {
   fetchQuizzes,
   createQuiz,
@@ -25,6 +25,7 @@ import {
   updateQuizStatus,
   deleteQuiz,
   fetchQuizParticipations,
+  publishNow,
 } from '../api/quizApi';
 /*
  * 2026-04-14: 운영자가 movie_id(VARCHAR PK) 를 외워 입력하던 부담을 제거하기 위해
@@ -112,6 +113,7 @@ const EMPTY_FORM = {
   options: ['', '', '', ''],
   rewardPoint: 10,
   quizDate: '',
+  hint: '',
 };
 
 /** 4지선다 라벨 (UI 전용, Backend 저장 시에는 지문 문자열만 배열로 직렬화) */
@@ -195,6 +197,7 @@ export default function QuizManagementTab({ aiModal }) {
 
   /* ── 작업 진행 상태 ── */
   const [busyId, setBusyId] = useState(null);
+  const [publishingNow, setPublishingNow] = useState(false);
 
   /* ── 참여자 모달 상태 ── */
   const [partModal, setPartModal] = useState(null); // { quizId, quizQuestion }
@@ -337,6 +340,7 @@ export default function QuizManagementTab({ aiModal }) {
       options: parseOptionsJson(item.options),
       rewardPoint: item.rewardPoint ?? 10,
       quizDate: item.quizDate ?? '',
+      hint: item.hint ?? '',
     });
     setEditTargetId(item.quizId);
     setModalMode(MODE_EDIT);
@@ -424,6 +428,7 @@ export default function QuizManagementTab({ aiModal }) {
         options: optionsJson,
         rewardPoint: form.rewardPoint === '' ? 10 : Number(form.rewardPoint),
         quizDate: form.quizDate || null,
+        hint: form.hint?.trim() || null,
       };
 
       if (modalMode === MODE_CREATE) {
@@ -498,6 +503,22 @@ export default function QuizManagementTab({ aiModal }) {
     }
   }
 
+  /** 오늘의 퀴즈 즉시 발행 (APPROVED → PUBLISHED, FIFO) */
+  async function handlePublishNow() {
+    if (publishingNow) return;
+    if (!confirm('APPROVED 상태 퀴즈 중 가장 오래된 1건을 오늘 날짜로 즉시 발행합니다. 계속하시겠습니까?')) return;
+    try {
+      setPublishingNow(true);
+      await publishNow();
+      alert('퀴즈가 발행되었습니다.');
+      loadQuizzes();
+    } catch (err) {
+      alert(err.message || '발행 중 오류가 발생했습니다.');
+    } finally {
+      setPublishingNow(false);
+    }
+  }
+
   /** 삭제 */
   async function handleDelete(item) {
     if (busyId === item.quizId) return;
@@ -528,6 +549,9 @@ export default function QuizManagementTab({ aiModal }) {
           </FilterSelect>
         </ToolbarLeft>
         <ToolbarRight>
+          <PublishNowButton onClick={handlePublishNow} disabled={publishingNow} title="APPROVED 퀴즈 1건을 오늘 날짜로 즉시 발행">
+            <MdPublish size={16} /> {publishingNow ? '발행 중...' : '즉시 발행'}
+          </PublishNowButton>
           <PrimaryButton onClick={openCreateModal}>
             <MdAdd size={16} /> 신규 등록
           </PrimaryButton>
@@ -810,6 +834,16 @@ export default function QuizManagementTab({ aiModal }) {
                   placeholder="정답 해설 (선택)"
                 />
               </Field>
+              <Field>
+                <Label>힌트 (QUIZ_HINT 아이템 사용 시 공개)</Label>
+                <Textarea
+                  name="hint"
+                  value={form.hint}
+                  onChange={handleFormChange}
+                  rows={2}
+                  placeholder="정답을 직접 알려주지 않는 단서 1문장 (선택)"
+                />
+              </Field>
               {/* quizDate 는 신규 등록 EP 미지원 — 수정 모달에서만 노출 */}
               {modalMode === MODE_EDIT && (
                 <Field>
@@ -1030,6 +1064,20 @@ const IconButton = styled.button`
   color: ${({ theme }) => theme.colors.textSecondary};
   &:hover { background: ${({ theme }) => theme.colors.bgHover}; }
   &:disabled { opacity: 0.4; }
+`;
+
+const PublishNowButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 14px;
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  font-weight: ${({ theme }) => theme.fontWeights.medium};
+  background: #10b981;
+  color: #fff;
+  border-radius: 4px;
+  &:hover:not(:disabled) { opacity: 0.9; }
+  &:disabled { opacity: 0.5; }
 `;
 
 const TableWrap = styled.div`
