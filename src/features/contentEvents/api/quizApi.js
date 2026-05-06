@@ -84,3 +84,12 @@ export function fetchQuizParticipations(id, page = 0, size = 20) {
 export function createQuiz(payload) {
   return backendApi.post(`${AI_OPS_BASE}/quiz/generate`, payload);
 }
+
+/**
+ * 오늘의 퀴즈 즉시 발행 (스케줄러 수동 트리거).
+ * APPROVED 상태 중 가장 오래된 퀴즈 1건을 오늘 날짜로 PUBLISHED 전이.
+ * AdminQuizController POST /api/v1/admin/quizzes/publish-now 호출.
+ */
+export function publishNow() {
+  return backendApi.post(`${QUIZ_BASE}/publish-now`);
+}
