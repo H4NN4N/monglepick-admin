@@ -43,6 +43,13 @@ const PERIOD_OPTIONS = [
   { value: '90d', label: '90일' },
 ];
 
+/** 기간 문자열 → 일 수 매핑 */
+const PERIOD_DAYS = {
+  '7d': 7,
+  '30d': 30,
+  '90d': 90,
+};
+
 /**
  * 숫자 포맷 유틸 — null/undefined 안전 처리.
  * 12345 → "12,345"
@@ -153,6 +160,7 @@ export default function ServiceTab() {
 
   /* 개요 데이터 안전 접근 */
   const d = overview ?? {};
+  const periodDays = PERIOD_DAYS[period] ?? 7;
 
   /** KPI 카드 정의 배열 */
   const kpiCards = [
@@ -161,7 +169,7 @@ export default function ServiceTab() {
       icon: <MdPeople size={18} />,
       title: 'DAU',
       value: overviewLoading ? '...' : fmt(d.dau),
-      subtitle: '일일 활성 사용자',
+      subtitle: `최근 ${periodDays}일 최대 일간 활성 사용자`,
       status: 'info',
     },
     {
@@ -169,7 +177,7 @@ export default function ServiceTab() {
       icon: <MdCalendarToday size={18} />,
       title: 'MAU',
       value: overviewLoading ? '...' : fmt(d.mau),
-      subtitle: '월간 활성 사용자',
+      subtitle: `최근 ${periodDays}일 내 활성 사용자`,
       status: 'info',
     },
     {
@@ -177,7 +185,7 @@ export default function ServiceTab() {
       icon: <MdPersonAdd size={18} />,
       title: '신규 가입',
       value: overviewLoading ? '...' : fmt(d.newUsers),
-      subtitle: '기간 내 신규 가입자',
+      subtitle: `최근 ${periodDays}일 내 신규 가입자`,
       status: 'success',
     },
     {
