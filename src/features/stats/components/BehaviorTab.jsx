@@ -3,13 +3,15 @@
  *
  * 구성:
  * 1. 기간 선택 버튼 그룹 (7d / 30d / 90d)
- * 2. 장르 선호 차트 (Recharts BarChart: 장르별 시청 수 + 리뷰 수)
+ * 2. 장르 선호 차트 (Recharts BarChart: 행동 프로필 장르 선호도 집계)
  * 3. 시간대별 활동 차트 (Recharts BarChart: 0~23시 활동량)
- * 4. 리텐션 테이블 (코호트 × 주차, 리텐션율 높을수록 진한 초록 셀 배경)
+ * 4. 리텐션 전용 필터 (최근 코호트 수)
+ * 5. 리텐션 테이블 (코호트 × 주차, 리텐션율 높을수록 진한 초록 셀 배경)
  *
  * 데이터 패칭:
- * - Promise.allSettled로 행동 분석 + 리텐션 병렬 호출
- * - 기간 변경 시 두 API 모두 재호출
+ * - 행동 분석과 리텐션을 분리 호출
+ * - 행동 기간 변경 시 장르/시간대만 재호출
+ * - 리텐션 필터 변경 시 리텐션만 재호출
  *
  * @param {Object} props - 없음 (내부 상태 관리)
  */
@@ -23,7 +25,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
 } from 'recharts';
 import { fetchBehavior, fetchRetention } from '../api/statsApi';
@@ -33,6 +34,12 @@ const PERIOD_OPTIONS = [
   { value: '7d',  label: '7일' },
   { value: '30d', label: '30일' },
   { value: '90d', label: '90일' },
+];
+
+const COHORT_OPTIONS = [
+  { value: 4, label: '4개 코호트' },
+  { value: 8, label: '8개 코호트' },
+  { value: 12, label: '12개 코호트' },
 ];
 
 /**
@@ -90,6 +97,8 @@ function fmt(val) {
  */
 function GenreTooltip({ active, payload, label }) {
   if (!active || !payload || payload.length === 0) return null;
+  const percentage = payload[0]?.payload?.percentage;
+
   return (
     <TooltipBox>
       <TooltipDate>{label}</TooltipDate>
@@ -100,6 +109,13 @@ function GenreTooltip({ active, payload, label }) {
           <TooltipValue>{fmt(entry.value)}</TooltipValue>
         </TooltipRow>
       ))}
+      {percentage !== null && percentage !== undefined && (
+        <TooltipRow>
+          <TooltipDot style={{ background: '#94a3b8' }} />
+          <TooltipLabel>전체 비중</TooltipLabel>
+          <TooltipValue>{Number(percentage).toFixed(1)}%</TooltipValue>
+        </TooltipRow>
+      )}
     </TooltipBox>
   );
 }
@@ -126,6 +142,7 @@ function HourlyTooltip({ active, payload, label }) {
 export default function BehaviorTab() {
   /** 현재 선택된 기간 */
   const [period, setPeriod] = useState('30d');
+  const [cohortWeeks, setCohortWeeks] = useState(8);
 
   /** 행동 분석 데이터 상태 */
   const [behavior, setBehavior] = useState(null);
@@ -138,20 +155,17 @@ export default function BehaviorTab() {
   const [retentionError, setRetentionError] = useState(null);
 
   /**
-   * 행동 분석 + 리텐션 병렬 호출.
+   * 행동 분석 호출.
    *
    * @param {string} p - 기간 (7d | 30d | 90d)
    */
-  const loadData = useCallback(async (p) => {
+  const loadBehaviorData = useCallback(async (p) => {
     setBehaviorLoading(true);
-    setRetentionLoading(true);
     setBehaviorError(null);
-    setRetentionError(null);
 
-    const [behaviorResult, retentionResult] = await Promise.allSettled([
-      fetchBehavior({ period: p }),
-      fetchRetention({ weeks: 8 }),
-    ]);
+    const behaviorResult = await fetchBehavior({ period: p })
+      .then((value) => ({ status: 'fulfilled', value }))
+      .catch((reason) => ({ status: 'rejected', reason }));
 
     /* 행동 분석 처리 */
     if (behaviorResult.status === 'fulfilled') {
@@ -162,8 +176,23 @@ export default function BehaviorTab() {
       );
     }
     setBehaviorLoading(false);
+  }, []);
 
-    /* 리텐션 처리 */
+  /**
+   * 리텐션 호출.
+   *
+   * @param {number} cw - 최근 코호트 수
+   */
+  const loadRetentionData = useCallback(async (cw) => {
+    setRetentionLoading(true);
+    setRetentionError(null);
+
+    const retentionResult = await fetchRetention({
+      cohortWeeks: cw,
+    })
+      .then((value) => ({ status: 'fulfilled', value }))
+      .catch((reason) => ({ status: 'rejected', reason }));
+
     if (retentionResult.status === 'fulfilled') {
       setRetention(
         Array.isArray(retentionResult.value) ? retentionResult.value : [],
@@ -176,10 +205,15 @@ export default function BehaviorTab() {
     setRetentionLoading(false);
   }, []);
 
-  /* 최초 마운트 + 기간 변경 시 데이터 로드 */
+  /* 최초 마운트 + 기간 변경 시 행동 분석 로드 */
   useEffect(() => {
-    loadData(period);
-  }, [period, loadData]);
+    loadBehaviorData(period);
+  }, [period, loadBehaviorData]);
+
+  /* 최초 마운트 + 리텐션 필터 변경 시 리텐션 로드 */
+  useEffect(() => {
+    loadRetentionData(cohortWeeks);
+  }, [cohortWeeks, loadRetentionData]);
 
   /* 장르 선호 데이터 안전 접근 */
   const genreStats = behavior?.genreStats ?? [];
@@ -188,10 +222,21 @@ export default function BehaviorTab() {
 
   /**
    * 리텐션 테이블 헤더 주차 목록.
-   * 첫 번째 행에서 week0, week1... 키를 추출.
+   * 전체 코호트에서 최대 week 인덱스를 찾고 0주차부터 순서대로 생성한다.
    */
-  const weekKeys = retention.length > 0
-    ? Object.keys(retention[0]).filter((k) => k.startsWith('week'))
+  const maxWeekIndex = retention.reduce((max, row) => {
+    const rowMax = Object.keys(row)
+      .filter((key) => key.startsWith('week'))
+      .reduce((innerMax, key) => {
+        const parsed = Number(key.replace('week', ''));
+        return Number.isNaN(parsed) ? innerMax : Math.max(innerMax, parsed);
+      }, -1);
+
+    return Math.max(max, rowMax);
+  }, -1);
+
+  const weekKeys = maxWeekIndex >= 0
+    ? Array.from({ length: maxWeekIndex + 1 }, (_, index) => `week${index}`)
     : [];
 
   return (
@@ -218,7 +263,7 @@ export default function BehaviorTab() {
       <ChartGrid>
         {/* ── 장르 선호 차트 ── */}
         <ChartCard>
-          <ChartTitle>장르별 시청 / 리뷰 수</ChartTitle>
+          <ChartTitle>장르별 선호도 분포</ChartTitle>
           <ChartBody $height={320}>
             {behaviorLoading ? (
               <LoadingMsg>차트 데이터를 불러오는 중...</LoadingMsg>
@@ -226,7 +271,7 @@ export default function BehaviorTab() {
               <LoadingMsg>표시할 데이터가 없습니다.</LoadingMsg>
             ) : (
               /*
-               * 가로 BarChart: 장르별 시청 수(파랑)와 리뷰 수(보라) 그룹 막대.
+               * 가로 BarChart: 행동 프로필 장르 선호도 집계(count) 막대.
                * layout="vertical"로 장르 이름이 Y축에 표시.
                */
               <ResponsiveContainer width="100%" height={320}>
@@ -257,22 +302,12 @@ export default function BehaviorTab() {
                     width={72}
                   />
                   <Tooltip content={<GenreTooltip />} />
-                  <Legend
-                    wrapperStyle={{ fontSize: '13px', paddingTop: '8px' }}
-                  />
                   <Bar
-                    dataKey="watchCount"
-                    name="시청 수"
+                    dataKey="count"
+                    name="선호도 집계"
                     fill="#6366f1"
                     radius={[0, 4, 4, 0]}
-                    barSize={10}
-                  />
-                  <Bar
-                    dataKey="reviewCount"
-                    name="리뷰 수"
-                    fill="#10b981"
-                    radius={[0, 4, 4, 0]}
-                    barSize={10}
+                    barSize={14}
                   />
                 </BarChart>
               </ResponsiveContainer>
@@ -331,10 +366,26 @@ export default function BehaviorTab() {
       {/* ── 코호트 리텐션 테이블 ── */}
       <SectionLabel style={{ marginTop: '32px' }}>코호트 리텐션</SectionLabel>
       {retentionError && <ErrorMsg>{retentionError}</ErrorMsg>}
+      <RetentionFilterRow>
+        <FilterGroup>
+          <FilterLabel>최근 코호트 수</FilterLabel>
+          <PeriodGroup>
+            {COHORT_OPTIONS.map((opt) => (
+              <PeriodButton
+                key={opt.value}
+                $active={cohortWeeks === opt.value}
+                onClick={() => setCohortWeeks(opt.value)}
+              >
+                {opt.label}
+              </PeriodButton>
+            ))}
+          </PeriodGroup>
+        </FilterGroup>
+      </RetentionFilterRow>
       <RetentionCard>
         <ChartTitle>주차별 리텐션율</ChartTitle>
         <RetentionNote>
-          셀 색상: 진한 초록 = 높은 리텐션, 연한 초록 = 낮은 리텐션
+          최근 완료된 주간 코호트만 표시합니다. `0주차`는 가입 주간 100%이며, 이후 주차는 실제 활동 로그 기준 유지율입니다.
         </RetentionNote>
         {retentionLoading ? (
           <LoadingMsg style={{ padding: '32px 0' }}>
@@ -355,9 +406,7 @@ export default function BehaviorTab() {
                     /* week0 → "0주차", week1 → "1주차" */
                     const weekNum = wk.replace('week', '');
                     return (
-                      <RetentionTh key={wk}>
-                        {weekNum === '0' ? '가입주' : `+${weekNum}주`}
-                      </RetentionTh>
+                      <RetentionTh key={wk}>{weekNum}주차</RetentionTh>
                     );
                   })}
                 </tr>
@@ -401,6 +450,20 @@ const FilterRow = styled.div`
   align-items: center;
   gap: ${({ theme }) => theme.spacing.lg};
   margin-bottom: ${({ theme }) => theme.spacing.xxl};
+`;
+
+const RetentionFilterRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.xl};
+  margin-bottom: ${({ theme }) => theme.spacing.lg};
+  flex-wrap: wrap;
+`;
+
+const FilterGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.spacing.md};
 `;
 
 const FilterLabel = styled.span`

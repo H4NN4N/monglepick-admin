@@ -132,29 +132,60 @@ export function fetchSearchQuality(params) {
 
 /**
  * 사용자 행동 분석 조회.
- * 장르별 시청/리뷰 수, 시간대별(0~23시) 활동량.
+ * 백엔드 BehaviorResponse 를 화면용 구조로 정규화한다.
  *
  * @param {Object} params
  * @param {string} [params.period] - 집계 기간 (7d | 30d | 90d)
  * @returns {Promise<Object>} {
- *   genreStats: [{ genre, watchCount, reviewCount }],
+ *   genreStats: [{ genre, count, percentage }],
  *   hourlyActivity: [{ hour, activityCount }]
  * }
  */
-export function fetchBehavior(params) {
-  return backendApi.get(`${STATS}/behavior`, { params });
+export async function fetchBehavior(params) {
+  const data = await backendApi.get(`${STATS}/behavior`, { params });
+
+  return {
+    genreStats: Array.isArray(data?.genrePreferences)
+      ? data.genrePreferences.map((item) => ({
+          genre: item.genre,
+          count: item.count,
+          percentage: item.percentage,
+        }))
+      : [],
+    hourlyActivity: Array.isArray(data?.hourlyActivity)
+      ? data.hourlyActivity.map((item) => ({
+          hour: item.hour,
+          activityCount: item.activityCount ?? item.count ?? 0,
+        }))
+      : [],
+  };
 }
 
 /**
  * 코호트 리텐션 데이터 조회.
- * 코호트(가입 주차) × 유지 주차별 리텐션율.
+ * 백엔드 RetentionResponse 를 BehaviorTab 히트맵 구조로 정규화한다.
  *
  * @param {Object} params
- * @param {number} [params.weeks=8] - 분석할 코호트 주차 수
+ * @param {number} [params.cohortWeeks=8] - 표시할 최근 코호트 수
+ * 유지 주차 수는 백엔드 기본값(현재 8주)을 사용한다.
  * @returns {Promise<Array>} [{ cohort, week0, week1, ..., weekN }]
  */
-export function fetchRetention(params) {
-  return backendApi.get(`${STATS}/retention`, { params });
+export async function fetchRetention(params) {
+  const data = await backendApi.get(`${STATS}/retention`, { params });
+  const cohorts = Array.isArray(data?.cohorts) ? data.cohorts : [];
+
+  return cohorts.map((item) => {
+    const normalized = {
+      cohort: item.cohortWeek,
+      week0: item.cohortSize > 0 ? 1 : null,
+    };
+
+    (Array.isArray(item.retentionRates) ? item.retentionRates : []).forEach((rate, index) => {
+      normalized[`week${index + 1}`] = Number(rate) / 100;
+    });
+
+    return normalized;
+  });
 }
 
 /**
