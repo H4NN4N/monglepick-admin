@@ -28,6 +28,7 @@ import StatusBadge from '@/shared/components/StatusBadge';
 import { useQueryParams } from '@/shared/hooks/useQueryParams';
 import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
 import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
+import { validateDateRange } from '../../../utils/dateValidation';
 
 /** 공지 카테고리 (콘텐츠 분류) */
 const CATEGORIES = [
@@ -139,6 +140,7 @@ export default function NoticeTab() {
   const [editTarget, setEditTarget] = useState(null); // null: 신규, Object: 수정
   const [form, setForm] = useState(INITIAL_FORM);
   const [formLoading, setFormLoading] = useState(false);
+  const [dateError, setDateError] = useState(null);
 
   /* ── 삭제 확인 다이얼로그 상태 ── */
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -282,6 +284,7 @@ export default function NoticeTab() {
   function handleFormChange(e) {
     const { name, value, type, checked } = e.target;
     setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    if (name === 'startAt' || name === 'endAt') setDateError(null);
   }
 
   /** 등록/수정 제출 */
@@ -289,6 +292,8 @@ export default function NoticeTab() {
     e.preventDefault();
     if (!form.title.trim()) { alert('제목을 입력해주세요.'); return; }
     if (!form.content.trim()) { alert('내용을 입력해주세요.'); return; }
+    const rangeErr = validateDateRange(form.startAt, form.endAt, '노출 시작', '노출 종료');
+    if (rangeErr) { setDateError(rangeErr); return; }
 
     try {
       setFormLoading(true);
@@ -647,6 +652,7 @@ export default function NoticeTab() {
                     name="startAt"
                     value={form.startAt}
                     onChange={handleFormChange}
+                    $hasError={!!dateError}
                   />
                 </FormRow>
                 <FormRow>
@@ -656,9 +662,11 @@ export default function NoticeTab() {
                     name="endAt"
                     value={form.endAt}
                     onChange={handleFormChange}
+                    $hasError={!!dateError}
                   />
                 </FormRow>
               </FieldGrid>
+              {dateError && <DateErrorMsg>{dateError}</DateErrorMsg>}
 
               <ModalFooter>
                 <CancelButton type="button" onClick={() => setModalOpen(false)}>
@@ -985,12 +993,18 @@ const Label = styled.label`
 const Input = styled.input`
   padding: 8px 12px;
   font-size: ${({ theme }) => theme.fontSizes.sm};
-  border: 1px solid ${({ theme }) => theme.colors.border};
+  border: 1px solid ${({ $hasError, theme }) => $hasError ? theme.colors.error : theme.colors.border};
   border-radius: 4px;
   background: ${({ theme }) => theme.colors.bgCard};
   color: ${({ theme }) => theme.colors.textPrimary};
   outline: none;
-  &:focus { border-color: ${({ theme }) => theme.colors.primary}; }
+  &:focus { border-color: ${({ $hasError, theme }) => $hasError ? theme.colors.error : theme.colors.primary}; }
+`;
+
+const DateErrorMsg = styled.p`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.error};
+  margin-top: 4px;
 `;
 
 const Select = styled.select`
