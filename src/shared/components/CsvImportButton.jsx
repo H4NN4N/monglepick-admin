@@ -34,13 +34,42 @@ import { useRef, useState } from 'react';
 import styled from 'styled-components';
 import { MdUploadFile, MdClose, MdCheckCircle, MdErrorOutline, MdFileDownload } from 'react-icons/md';
 import { parseCsv, readFileAsText, rowToPayload } from '@/shared/utils/csvImport';
-import { downloadCsvTemplate } from '@/shared/utils/csvExport';
+import {
+  CSV_TEMPLATE_ROW_TYPE_HEADER,
+  CSV_TEMPLATE_SAMPLE_ROW_VALUE,
+  downloadCsvTemplate,
+} from '@/shared/utils/csvExport';
 
 /** 미리보기 모달에서 상위 몇 행까지 노출할지 */
 const PREVIEW_ROW_LIMIT = 5;
 
 /** 한 파일 당 최대 허용 행 수 — 브라우저 타임아웃·Backend 과부하 방지 */
 const MAX_IMPORT_ROWS = 1000;
+
+/**
+ * CSV 템플릿에 포함된 샘플 행을 실제 임포트 대상에서 제외한다.
+ *
+ * `행 유형 (샘플 행은 업로드 제외)` 컬럼은 백엔드 필드가 아니라 프론트 전용 메타 컬럼이다.
+ * 운영자가 템플릿 샘플을 참고할 수 있도록 파일 안에는 남기되, 값이 `샘플`인 행은
+ * 미리보기/검증/API 호출 대상에서 제거한다. 기존 CSV처럼 해당 컬럼이 없는 파일은 그대로 처리한다.
+ */
+function removeTemplateSampleRows(parseResult) {
+  if (!parseResult?.headers?.includes(CSV_TEMPLATE_ROW_TYPE_HEADER)) {
+    return parseResult;
+  }
+
+  return {
+    ...parseResult,
+    rows: parseResult.rows
+      .map((row, index) => ({
+        ...row,
+        __csvRowNumber: index + 2,
+      }))
+      .filter((row) => (
+        String(row[CSV_TEMPLATE_ROW_TYPE_HEADER] ?? '').trim() !== CSV_TEMPLATE_SAMPLE_ROW_VALUE
+      )),
+  };
+}
 
 export default function CsvImportButton({
   label = 'CSV 가져오기',
@@ -136,10 +165,10 @@ export default function CsvImportButton({
 
     try {
       const text = await readFileAsText(file);
-      const result = parseCsv(text);
+      const result = removeTemplateSampleRows(parseCsv(text));
 
       if (result.rows.length === 0) {
-        throw new Error('데이터 행이 없습니다. 헤더만 존재하는 파일입니다.');
+        throw new Error('등록할 데이터 행이 없습니다. 템플릿의 샘플 행은 업로드 대상에서 제외됩니다.');
       }
       if (result.rows.length > MAX_IMPORT_ROWS) {
         throw new Error(
@@ -200,7 +229,7 @@ export default function CsvImportButton({
       const { payload, errors } = rowToPayload(row, columns);
       if (errors.length > 0) {
         failureDetails.push({
-          index: i + 2, // 헤더가 1행이므로 사용자 입장에서 +2
+          index: row.__csvRowNumber ?? i + 2, // 헤더가 1행이므로 사용자 입장에서 +2
           errors,
           serverMessage: null,
         });
@@ -215,7 +244,7 @@ export default function CsvImportButton({
         succeeded += 1;
       } catch (err) {
         failureDetails.push({
-          index: i + 2,
+          index: row.__csvRowNumber ?? i + 2,
           errors: [],
           serverMessage: err?.message ?? String(err),
         });

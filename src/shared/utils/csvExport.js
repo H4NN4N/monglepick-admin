@@ -38,6 +38,12 @@
 /** UTF-8 BOM — Excel 한글 인코딩 자동 감지용 */
 const UTF8_BOM = '\uFEFF';
 
+/** CSV 템플릿 전용 행 유형 컬럼 — 샘플 행을 실제 임포트 대상에서 제외하기 위한 프론트 전용 메타 컬럼 */
+export const CSV_TEMPLATE_ROW_TYPE_HEADER = '행 유형 (샘플 행은 업로드 제외)';
+
+/** CSV 템플릿에서 예시 행임을 표시하는 값 */
+export const CSV_TEMPLATE_SAMPLE_ROW_VALUE = '샘플';
+
 /**
  * 단일 셀 값을 CSV-safe 문자열로 변환한다.
  *
@@ -191,14 +197,15 @@ export function downloadCsv(filename, columns, rows) {
  *
  * <h3>템플릿 구조</h3>
  * <ol>
- *   <li>1행: 헤더 (`columns[].header`)</li>
- *   <li>2행 이후: 예시 행들 — 각 컬럼의 `example`, `example2`, `example3`, ... 필드 값.
+ *   <li>1행: 헤더 (`행 유형 (샘플 행은 업로드 제외)` + `columns[].header`)</li>
+ *   <li>2행 이후: 예시 행들 — 행 유형은 `샘플`, 각 컬럼은 `example`, `example2`, `example3`, ... 필드 값.
  *       해당 슬롯에 값이 하나라도 있는 컬럼이 존재하면 그 슬롯에 대응하는 행이 생성된다.
  *       모든 컬럼의 해당 슬롯이 비어 있으면 그 슬롯부터는 추가하지 않는다.</li>
  * </ol>
  *
- * <p>예시 행은 운영자가 "어떤 값을 넣어야 하는지" 즉시 파악할 수 있도록 제공한다.
- * 실제 업로드 전에는 예시 행을 삭제하거나 수정해야 한다.</p>
+ * <p>예시 행은 운영자가 "어떤 값을 넣어야 하는지" 즉시 파악할 수 있도록 제공한다. 템플릿의
+ * 행 유형이 `샘플`인 행은 {@link CsvImportButton} 에서 임포트 대상에서 제외하므로,
+ * 실수로 템플릿을 그대로 업로드해도 샘플 데이터가 DB에 등록되지 않는다.</p>
  *
  * <p><strong>2026-04-14 확장</strong>: 기존 `example` + `example2` 2슬롯 고정에서
  * `example{N}` 패턴(N=2..{@link MAX_EXAMPLE_SLOTS})으로 확장. 리워드 정책처럼
@@ -227,10 +234,16 @@ export function downloadCsvTemplate(filename, columns) {
    * 템플릿 전용 컬럼 정의 — 기존 `toCsv()` 에 그대로 전달한다.
    * accessor 는 각 행 객체에서 header 값을 가져오도록 고정한다 (샘플 행도 동일 구조).
    */
-  const templateColumns = columns.map((col) => ({
-    header: col.header,
-    accessor: col.header,
-  }));
+  const templateColumns = [
+    {
+      header: CSV_TEMPLATE_ROW_TYPE_HEADER,
+      accessor: CSV_TEMPLATE_ROW_TYPE_HEADER,
+    },
+    ...columns.map((col) => ({
+      header: col.header,
+      accessor: col.header,
+    })),
+  ];
 
   /*
    * 예시 행 N개 지원 — `example`(슬롯 1), `example2`(슬롯 2), ..., `example{MAX}`(슬롯 MAX).
@@ -243,7 +256,9 @@ export function downloadCsvTemplate(filename, columns) {
   const rows = [];
   for (let slot = 1; slot <= MAX_EXAMPLE_SLOTS; slot++) {
     const field = slot === 1 ? 'example' : `example${slot}`;
-    const row = {};
+    const row = {
+      [CSV_TEMPLATE_ROW_TYPE_HEADER]: CSV_TEMPLATE_SAMPLE_ROW_VALUE,
+    };
     let hasAny = false;
     for (const col of columns) {
       const val = col[field];
