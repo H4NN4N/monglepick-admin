@@ -51,7 +51,7 @@ export default function NavigationCard({ data }) {
     if (!path) {
       // alert 는 운영 환경에서 거슬릴 수 있으므로 console + 빈 path 안내 줄을 별도 표시.
       // 운영 환경에서 Toast 컴포넌트가 도입되면 그 쪽으로 옮기는 것이 좋다.
-       
+      // eslint-disable-next-line no-console
       console.error('[NavigationCard] target_path 가 비어 있어 이동할 수 없습니다.', { tool_name });
       alert(
         '이동할 화면 경로가 없어요.\n다시 한 번 어떤 작업을 원하시는지 구체적으로 말씀해 주세요.\n' +

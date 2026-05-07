@@ -157,7 +157,7 @@ export default function UsersPage() {
   );
   useEffect(() => {
     const next = buildUrlDraft(searchParams);
-     
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (next !== null) setUrlDraftSnapshot(next);
     // null 이어도 기존 snapshot 유지 — cleanup 후에도 모달이 prefill 을 그대로 보유.
   }, [searchParams]);
@@ -247,7 +247,7 @@ export default function UsersPage() {
    */
   useEffect(() => {
     if (queryUserId) {
-       
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedUserId(queryUserId);
       if (VALID_ACTIONS.has(queryAction)) {
         setPendingAction(queryAction);

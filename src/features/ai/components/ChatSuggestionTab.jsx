@@ -167,7 +167,7 @@ export default function ChatSuggestionTab() {
       setRows(result?.content ?? []);
       setTotalPages(result?.page?.totalPages ?? result?.totalPages ?? 0);
     } catch (err) {
-       
+      // eslint-disable-next-line no-console
       console.error('[ChatSuggestionTab] 목록 조회 실패', err);
       setError(err?.message || '목록 조회 중 오류가 발생했습니다.');
     } finally {

@@ -325,7 +325,7 @@ export default function MovieMasterTab() {
       });
     } catch (err) {
       // 상세 실패해도 목록 데이터로 폴백 — 사용자에겐 경고만 노출
-       
+      // eslint-disable-next-line no-console
       console.warn('[MovieMasterTab] 영화 상세 조회 실패:', err);
     } finally {
       setDetailLoading(false);

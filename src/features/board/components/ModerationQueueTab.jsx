@@ -334,7 +334,7 @@ export default function ModerationQueueTab() {
    */
   async function handleQuickAction(item, decision) {
     const label = decision === 'dismiss' ? '기각(무시)' : '삭제';
-     
+    // eslint-disable-next-line no-alert
     const reason = window.prompt(
       `"${label}" 처리 사유를 입력해주세요.\n` +
       '감사 로그에 기록되며 이후 검토 근거가 됩니다.',
@@ -342,7 +342,7 @@ export default function ModerationQueueTab() {
     );
     if (reason === null) return;
     if (!reason.trim()) {
-       
+      // eslint-disable-next-line no-alert
       alert('사유는 필수입니다.');
       return;
     }
@@ -361,7 +361,7 @@ export default function ModerationQueueTab() {
       /* 처리 완료된 아이템을 즉시 목록에서 제거 — 큐 재호출 대신 낙관적 업데이트 */
       setItems((prev) => prev.filter((it) => it.queueId !== item.queueId));
     } catch (err) {
-       
+      // eslint-disable-next-line no-alert
       alert(`처리 실패: ${err?.message ?? '알 수 없는 오류'}`);
     } finally {
       setProcessingId(null);
