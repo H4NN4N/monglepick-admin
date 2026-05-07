@@ -13,6 +13,7 @@
 
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import styled from 'styled-components';
+import { validateRequiredDate, validateDateRange, firstError } from '../../../utils/dateValidation';
 import { MdRefresh, MdAdd, MdEdit, MdDelete, MdList, MdCode } from 'react-icons/md';
 import {
   fetchOcrEvents,
@@ -122,6 +123,7 @@ export default function OcrEventTab() {
   /** 편집 모드에서 기존 movieId 로 영화 상세를 불러오는 중인지 여부 */
   const [formMovieLoading, setFormMovieLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [dateError, setDateError] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
   const [verificationPanelEventId, setVerificationPanelEventId] = useState(null);
@@ -216,6 +218,7 @@ export default function OcrEventTab() {
   function handleFormChange(e) {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
+    if (name === 'startDate' || name === 'endDate') setDateError(null);
   }
 
   async function handleSubmit(e) {
@@ -229,6 +232,12 @@ export default function OcrEventTab() {
       alert('대상 영화를 선택하세요.');
       return;
     }
+    const err = firstError(
+      validateRequiredDate(form.startDate, '시작일'),
+      validateRequiredDate(form.endDate, '종료일'),
+      validateDateRange(form.startDate, form.endDate, '시작일', '종료일'),
+    );
+    if (err) { setDateError(err); return; }
     try {
       setSubmitting(true);
       // Backend Create/UpdateOcrEventRequest 와 필드명 1:1 정합
@@ -655,6 +664,7 @@ export default function OcrEventTab() {
                     value={form.startDate}
                     onChange={handleFormChange}
                     required
+                    $hasError={!!dateError}
                   />
                 </Field>
                 <Field>
@@ -665,9 +675,11 @@ export default function OcrEventTab() {
                     value={form.endDate}
                     onChange={handleFormChange}
                     required
+                    $hasError={!!dateError}
                   />
                 </Field>
               </FieldRow>
+              {dateError && <DateErrorMsg>{dateError}</DateErrorMsg>}
               <DialogFooter>
                 <CancelButton type="button" onClick={closeModal}>취소</CancelButton>
                 <PrimaryButton type="submit" disabled={submitting}>
@@ -920,11 +932,16 @@ const Input = styled.input`
   width: 100%;
   padding: 7px 10px;
   font-size: ${({ theme }) => theme.fontSizes.sm};
-  border: 1px solid ${({ theme }) => theme.colors.border};
+  border: 1px solid ${({ $hasError, theme }) => $hasError ? theme.colors.error : theme.colors.border};
   border-radius: 4px;
   background: ${({ theme }) => theme.colors.bgCard};
   color: ${({ theme }) => theme.colors.textPrimary};
-  &:focus { border-color: ${({ theme }) => theme.colors.primary}; outline: none; }
+  &:focus { border-color: ${({ $hasError, theme }) => $hasError ? theme.colors.error : theme.colors.primary}; outline: none; }
+`;
+const DateErrorMsg = styled.p`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.error};
+  margin-top: 4px;
 `;
 /**
  * 메모(상세 설명) 입력용 textarea.

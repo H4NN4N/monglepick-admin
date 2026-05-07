@@ -15,6 +15,7 @@ import { fetchBanners, createBanner, updateBanner, deleteBanner } from '../api/s
 import StatusBadge from '@/shared/components/StatusBadge';
 import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
 import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
+import { validateDateRange } from '../../../utils/dateValidation';
 
 /** 배너 위치 옵션 */
 const POSITIONS = [
@@ -87,6 +88,7 @@ export default function BannerTab({ aiModal = null }) {
   const [editTarget, setEditTarget] = useState(null); // null: 신규, Object: 수정 대상
   const [form, setForm] = useState(INITIAL_FORM);
   const [formLoading, setFormLoading] = useState(false);
+  const [dateError, setDateError] = useState(null);
 
   /* ── 삭제 확인 다이얼로그 상태 ── */
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -164,6 +166,7 @@ export default function BannerTab({ aiModal = null }) {
       ...prev,
       [name]: type === 'checkbox' ? checked : type === 'number' ? Number(value) : value,
     }));
+    if (name === 'startDate' || name === 'endDate') setDateError(null);
   }
 
   /**
@@ -185,6 +188,8 @@ export default function BannerTab({ aiModal = null }) {
       alert('이미지 URL을 입력해주세요.');
       return;
     }
+    const rangeErr = validateDateRange(form.startDate, form.endDate, '시작일', '종료일');
+    if (rangeErr) { setDateError(rangeErr); return; }
 
     const rawLink = (form.linkUrl ?? '').trim();
     let normalizedLink = rawLink || null;
@@ -472,6 +477,7 @@ export default function BannerTab({ aiModal = null }) {
                     name="startDate"
                     value={form.startDate}
                     onChange={handleFormChange}
+                    $hasError={!!dateError}
                   />
                 </FormRow>
                 <FormRow>
@@ -481,9 +487,11 @@ export default function BannerTab({ aiModal = null }) {
                     name="endDate"
                     value={form.endDate}
                     onChange={handleFormChange}
+                    $hasError={!!dateError}
                   />
                 </FormRow>
               </FormRowDouble>
+              {dateError && <DateErrorMsg>{dateError}</DateErrorMsg>}
 
               {/* 활성 여부 체크박스 */}
               <CheckLabel>
@@ -828,13 +836,19 @@ const Label = styled.label`
 const Input = styled.input`
   padding: 8px 12px;
   font-size: ${({ theme }) => theme.fontSizes.sm};
-  border: 1px solid ${({ theme }) => theme.colors.border};
+  border: 1px solid ${({ $hasError, theme }) => $hasError ? theme.colors.error : theme.colors.border};
   border-radius: 4px;
   outline: none;
   width: 100%;
   &:focus {
-    border-color: ${({ theme }) => theme.colors.primary};
+    border-color: ${({ $hasError, theme }) => $hasError ? theme.colors.error : theme.colors.primary};
   }
+`;
+
+const DateErrorMsg = styled.p`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.error};
+  margin-top: 4px;
 `;
 
 const StyledSelect = styled.select`

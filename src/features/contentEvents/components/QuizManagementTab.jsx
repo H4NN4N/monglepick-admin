@@ -46,6 +46,7 @@ import { normalizeMovie } from '@/shared/components/movieSearchPickerUtils';
 import { fetchMovieDetail } from '@/features/data/api/dataApi';
 import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
 import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
+import { validateFutureDate } from '../../../utils/dateValidation';
 
 /** 페이지 크기 */
 const PAGE_SIZE = 10;
@@ -198,6 +199,7 @@ export default function QuizManagementTab({ aiModal }) {
   /* ── 작업 진행 상태 ── */
   const [busyId, setBusyId] = useState(null);
   const [publishingNow, setPublishingNow] = useState(false);
+  const [dateError, setDateError] = useState(null);
 
   /* ── 참여자 모달 상태 ── */
   const [partModal, setPartModal] = useState(null); // { quizId, quizQuestion }
@@ -384,6 +386,7 @@ export default function QuizManagementTab({ aiModal }) {
   function handleFormChange(e) {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
+    if (name === 'quizDate') setDateError(null);
   }
 
   /**
@@ -404,6 +407,10 @@ export default function QuizManagementTab({ aiModal }) {
   async function handleSubmit(e) {
     e.preventDefault();
     if (submitting) return;
+    if (modalMode === MODE_EDIT && form.quizDate) {
+      const futureErr = validateFutureDate(form.quizDate, '출제 예정일');
+      if (futureErr) { setDateError(futureErr); return; }
+    }
     try {
       setSubmitting(true);
       /* QA #76: 4칸 지문을 공백 제거 후 빈 문자열 제거 → 2개 이상이면 JSON 직렬화.
@@ -853,7 +860,9 @@ export default function QuizManagementTab({ aiModal }) {
                     name="quizDate"
                     value={form.quizDate}
                     onChange={handleFormChange}
+                    $hasError={!!dateError}
                   />
+                  {dateError && <DateErrorMsg>{dateError}</DateErrorMsg>}
                 </Field>
               )}
               <DialogFooter>
@@ -1253,11 +1262,17 @@ const Input = styled.input`
   width: 100%;
   padding: 7px 10px;
   font-size: ${({ theme }) => theme.fontSizes.sm};
-  border: 1px solid ${({ theme }) => theme.colors.border};
+  border: 1px solid ${({ $hasError, theme }) => $hasError ? theme.colors.error : theme.colors.border};
   border-radius: 4px;
   background: ${({ theme }) => theme.colors.bgCard};
   color: ${({ theme }) => theme.colors.textPrimary};
-  &:focus { border-color: ${({ theme }) => theme.colors.primary}; outline: none; }
+  &:focus { border-color: ${({ $hasError, theme }) => $hasError ? theme.colors.error : theme.colors.primary}; outline: none; }
+`;
+
+const DateErrorMsg = styled.p`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.error};
+  margin-top: 4px;
 `;
 
 const Textarea = styled.textarea`
