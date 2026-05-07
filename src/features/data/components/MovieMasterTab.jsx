@@ -54,26 +54,26 @@ const MODE_EDIT = 'EDIT';
  */
 const CSV_IMPORT_COLUMNS = [
   {
-    key: 'movieId', header: 'movieId', required: true,
+    key: 'movieId', header: '영화 ID (필수)', required: true,
     description: '고유 영화 ID (영문/숫자/언더스코어)',
     example: 'm_admin_001', example2: 'm_admin_002',
   },
   {
-    key: 'title', header: 'title', required: true,
+    key: 'title', header: '제목 (필수)', required: true,
     description: '제목 (한국어)',
     example: '예시 영화 하나', example2: '예시 영화 둘',
   },
   {
-    key: 'titleEn', header: 'titleEn', description: '원제/영문 제목',
+    key: 'titleEn', header: '원제/영문 제목 (선택)', description: '원제 또는 영문 제목',
     example: 'Sample Movie One', example2: 'Sample Movie Two',
   },
   {
-    key: 'overview', header: 'overview', description: '줄거리/요약',
+    key: 'overview', header: '줄거리/요약 (선택)', description: '영화 줄거리 또는 요약',
     example: '한 줄로 쓴 샘플 줄거리입니다.', example2: '',
   },
   {
     key: 'tmdbId',
-    header: 'tmdbId',
+    header: 'TMDB ID (선택, 정수)',
     description: 'TMDB 정수 ID (선택)',
     example: 12345,
     transform: (raw) => {
@@ -84,7 +84,7 @@ const CSV_IMPORT_COLUMNS = [
   },
   {
     key: 'genres',
-    header: 'genres',
+    header: '장르 목록 (선택, JSON 배열)',
     description: 'JSON 배열 (예: ["액션","SF"])',
     example: '["액션","SF"]', example2: '["드라마"]',
     transform: (raw) => {
@@ -98,12 +98,12 @@ const CSV_IMPORT_COLUMNS = [
     },
   },
   {
-    key: 'director', header: 'director', description: '감독명',
+    key: 'director', header: '감독명 (선택)', description: '감독명',
     example: '홍길동', example2: '김감독',
   },
   {
     key: 'releaseYear',
-    header: 'releaseYear',
+    header: '개봉 연도 (선택, 정수)',
     description: '개봉 연도 (정수, 예: 2024)',
     example: 2024, example2: 2023,
     transform: (raw) => {
@@ -113,12 +113,12 @@ const CSV_IMPORT_COLUMNS = [
     },
   },
   {
-    key: 'releaseDate', header: 'releaseDate', description: 'YYYY-MM-DD',
+    key: 'releaseDate', header: '개봉일 (선택, YYYY-MM-DD)', description: '개봉일. YYYY-MM-DD 형식',
     example: '2024-05-15',
   },
   {
     key: 'runtime',
-    header: 'runtime',
+    header: '상영 시간 분 (선택, 정수)',
     description: '상영 시간 (분, 정수)',
     example: 120, example2: 95,
     transform: (raw) => {
@@ -129,7 +129,7 @@ const CSV_IMPORT_COLUMNS = [
   },
   {
     key: 'rating',
-    header: 'rating',
+    header: '평점 (선택, 0.0~10.0)',
     description: '평점 0.0~10.0',
     example: 8.5, example2: 7.2,
     transform: (raw) => {
@@ -138,15 +138,15 @@ const CSV_IMPORT_COLUMNS = [
       return n;
     },
   },
-  { key: 'posterPath',    header: 'posterPath',    description: '포스터 URL', example: 'https://example.com/poster.jpg' },
-  { key: 'certification', header: 'certification', description: '관람등급 (전체/12/15/청불)', example: '15', example2: '전체' },
-  { key: 'trailerUrl',    header: 'trailerUrl',    description: '트레일러 URL' },
-  { key: 'tagline',       header: 'tagline',       description: '한 줄 소개', example: '잊지 못할 이야기' },
-  { key: 'originalLanguage', header: 'originalLanguage', description: 'ISO 639-1 (ko/en/ja...)', example: 'ko', example2: 'en' },
-  { key: 'backdropPath',  header: 'backdropPath',  description: '배경 이미지 URL' },
+  { key: 'posterPath',    header: '포스터 URL (선택)',    description: '포스터 이미지 URL', example: 'https://example.com/poster.jpg' },
+  { key: 'certification', header: '관람등급 (선택)', description: '관람등급. 예: 전체, 12, 15, 청불', example: '15', example2: '전체' },
+  { key: 'trailerUrl',    header: '트레일러 URL (선택)',    description: '트레일러 URL' },
+  { key: 'tagline',       header: '한 줄 소개 (선택)',       description: '영화 한 줄 소개', example: '잊지 못할 이야기' },
+  { key: 'originalLanguage', header: '원어 코드 (선택, ko/en/ja)', description: 'ISO 639-1 언어 코드. 예: ko, en, ja', example: 'ko', example2: 'en' },
+  { key: 'backdropPath',  header: '배경 이미지 URL (선택)',  description: '배경 이미지 URL' },
   {
     key: 'adult',
-    header: 'adult',
+    header: '성인 콘텐츠 여부 (선택, true/false)',
     description: '성인 콘텐츠 여부 (true/false/1/0)',
     example: 'false', example2: 'false',
     transform: (raw) => {

@@ -38,17 +38,17 @@ const EMPTY_FORM = { genreCode: '', genreName: '' };
 const CSV_IMPORT_COLUMNS = [
   {
     key: 'genreCode',
-    header: 'genreCode',
+    header: '장르 코드 (필수)',
     required: true,
-    description: '시스템 식별자 (영문 대문자/언더스코어, 예: ACTION)',
+    description: '시스템 식별자. 영문 대문자/언더스코어 권장. 예: ACTION, SCI_FI',
     example: 'ACTION',
     example2: 'SCI_FI',
   },
   {
     key: 'genreName',
-    header: 'genreName',
+    header: '장르명 (필수)',
     required: true,
-    description: '한국어 노출명 (예: 액션)',
+    description: '사용자에게 노출되는 한국어 장르명. 예: 액션, SF',
     example: '액션',
     example2: 'SF',
   },
