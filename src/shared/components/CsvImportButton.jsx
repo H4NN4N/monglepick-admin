@@ -100,7 +100,7 @@ export default function CsvImportButton({
     try {
       downloadCsvTemplate(templateName, columns);
     } catch (err) {
-      // eslint-disable-next-line no-alert
+       
       alert(`템플릿 생성 실패: ${err?.message ?? '알 수 없는 오류'}`);
     }
   }
@@ -122,7 +122,7 @@ export default function CsvImportButton({
 
     /* 확장자 검증 — 정확하지 않지만 실수 방지용 */
     if (!/\.csv$/i.test(file.name)) {
-      // eslint-disable-next-line no-alert
+       
       alert('CSV 파일만 지원합니다. (.csv 확장자 필요)');
       return;
     }
@@ -210,7 +210,7 @@ export default function CsvImportButton({
 
       /* API 호출 — 실패는 catch 해서 수집 */
       try {
-        // eslint-disable-next-line no-await-in-loop
+         
         await onRowImport(payload);
         succeeded += 1;
       } catch (err) {

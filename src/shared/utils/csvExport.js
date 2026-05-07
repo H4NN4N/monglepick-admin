@@ -332,7 +332,7 @@ export async function logCsvExport(meta) {
   } catch (err) {
     // 감사 로그 기록 실패는 사용자 경험에 영향을 주지 않도록 삼킨다.
     // 개발/운영 시 누락을 인지할 수 있도록 경고 레벨 로그만 남긴다.
-    // eslint-disable-next-line no-console
+     
     console.warn('[csvExport] 감사 로그 기록 실패:', err?.message ?? err);
   }
 }

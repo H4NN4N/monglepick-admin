@@ -97,7 +97,7 @@ export default function CsvExportButton({
       }
     } catch (err) {
       // 데이터 로딩 실패 — 사용자에게 경고
-      // eslint-disable-next-line no-alert
+       
       alert(`CSV 내보내기 데이터 로딩 실패: ${err?.message ?? '알 수 없는 오류'}`);
       setLoading(false);
       return;
@@ -107,7 +107,7 @@ export default function CsvExportButton({
 
     // 데이터가 비어있으면 내보내기 생략 — 빈 CSV 다운로드는 불필요한 혼란을 초래
     if (!Array.isArray(dataRows) || dataRows.length === 0) {
-      // eslint-disable-next-line no-alert
+       
       alert('내보낼 데이터가 없습니다.');
       return;
     }
@@ -119,7 +119,7 @@ export default function CsvExportButton({
     try {
       downloadCsv(fullName, columns, dataRows);
     } catch (err) {
-      // eslint-disable-next-line no-alert
+       
       alert(`CSV 생성 실패: ${err?.message ?? '알 수 없는 오류'}`);
       return;
     }
