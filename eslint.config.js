@@ -24,10 +24,6 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', destructuredArrayIgnorePattern: '^_', ignoreRestSiblings: true }],
-      // react-hooks v7 에서 새로 추가된 규칙. 기존 코드 패턴(모달 열릴 때 reset,
-      // 탭 lazy-mount ref 등)이 전부 error 로 잡히므로 off 처리한다.
-      'react-hooks/set-state-in-effect': 'off',
-      'react-hooks/refs': 'off',
     },
   },
 ])
