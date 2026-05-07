@@ -1,14 +1,11 @@
 /**
  * 설정 탭 메인 페이지.
  *
- * 2026-04-08 개편:
- *  - 감사 로그 서브탭 제거 → 시스템 탭으로 이관 (조회 전용 성격 통합)
- *  - 설정 탭은 순수 CRUD 전용 3개 서브탭으로 정리
- *
- * 3개 서브탭:
+ * 4개 서브탭:
  *  - 약관/정책: 약관 CRUD + 버전 관리
  *  - 배너: 마케팅 배너 CRUD
  *  - 관리자 계정: 관리자 역할 부여/박탈
+ *  - 감사 로그: 관리자 주요 행위 조회
  *
  * Phase G P1 (2026-04-23):
  * - ?tab=terms 쿼리 시 해당 서브탭 자동 전환 (AI 어시스턴트 딥링크 대응).
@@ -20,11 +17,13 @@ import { useQueryParams } from '@/shared/hooks/useQueryParams';
 import TermsTab from '../components/TermsTab';
 import BannerTab from '../components/BannerTab';
 import AdminAccountTab from '../components/AdminAccountTab';
+import AuditLogTab from '../components/AuditLogTab';
 
 const TABS = [
   { key: 'terms',   label: '약관/정책' },
   { key: 'banners', label: '배너' },
   { key: 'admins',  label: '관리자 계정' },
+  { key: 'audit',   label: '감사 로그' },
 ];
 
 export default function SettingsPage() {
@@ -49,7 +48,7 @@ export default function SettingsPage() {
     <Wrapper>
       <PageHeader>
         <PageTitle>설정</PageTitle>
-        <PageDesc>약관/정책, 배너, 관리자 계정을 관리합니다.</PageDesc>
+        <PageDesc>약관/정책, 배너, 관리자 계정, 감사 로그를 관리합니다.</PageDesc>
       </PageHeader>
 
       <TabBar>
@@ -68,6 +67,7 @@ export default function SettingsPage() {
         {activeTab === 'terms'   && <TermsTab aiModal={queryTab === 'terms' ? queryModal : null} />}
         {activeTab === 'banners' && <BannerTab aiModal={queryTab === 'banners' ? queryModal : null} />}
         {activeTab === 'admins'  && <AdminAccountTab />}
+        {activeTab === 'audit'   && <AuditLogTab />}
       </TabContent>
     </Wrapper>
   );
