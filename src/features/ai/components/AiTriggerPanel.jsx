@@ -1,6 +1,6 @@
 /**
  * AI 트리거 패널 컴포넌트.
- * 퀴즈 생성 폼(장르, 난이도, 수량)을 카드 형태로 표시.
+ * 퀴즈 생성 폼(장르, 수량)을 카드 형태로 표시.
  *
  * 2026-04-08: AI 리뷰 생성 기능 제거.
  * 2026-04-29: "오늘 퀴즈 강제 발행" 카드 추가.
@@ -47,13 +47,6 @@ const GENRE_OPTIONS = [
   { value: '미스터리',   label: '미스터리' },
 ];
 
-/** 퀴즈 난이도 옵션 */
-const DIFFICULTY_OPTIONS = [
-  { value: 'easy',   label: '쉬움' },
-  { value: 'medium', label: '보통' },
-  { value: 'hard',   label: '어려움' },
-];
-
 /** 영화 선택 생성 모드 퀴즈 유형 옵션 */
 const QUIZ_TYPE_OPTIONS = [
   { value: 'plot',     label: '줄거리' },
@@ -71,13 +64,11 @@ export default function AiTriggerPanel() {
 
   /* ── 자동 생성 폼 상태 ── */
   const [quizGenre, setQuizGenre] = useState('');
-  const [quizDifficulty, setQuizDifficulty] = useState('medium');
   const [quizCount, setQuizCount] = useState(5);
 
   /* ── 영화 선택 생성 폼 상태 ── */
   const [selectedMovie, setSelectedMovie] = useState(null);
   const [manualQuizType, setManualQuizType] = useState('plot');
-  const [manualDifficulty, setManualDifficulty] = useState('medium');
 
   /* ── 공통 퀴즈 생성 상태 ── */
   const [quizLoading, setQuizLoading] = useState(false);
@@ -118,7 +109,6 @@ export default function AiTriggerPanel() {
   function handleQuizGenerate() {
     _runGenerate({
       genre: quizGenre || undefined,
-      difficulty: quizDifficulty,
       count: Number(quizCount),
     });
   }
@@ -129,7 +119,6 @@ export default function AiTriggerPanel() {
     _runGenerate({
       movieId: selectedMovie.movieId,
       quizType: manualQuizType,
-      difficulty: manualDifficulty,
       count: 1,
     });
   }
@@ -214,24 +203,6 @@ export default function AiTriggerPanel() {
               </FieldGroup>
 
               <FieldGroup>
-                <FieldLabel>난이도</FieldLabel>
-                <RadioRow>
-                  {DIFFICULTY_OPTIONS.map((opt) => (
-                    <RadioLabel key={opt.value}>
-                      <RadioInput
-                        type="radio"
-                        name="quiz-difficulty"
-                        value={opt.value}
-                        checked={quizDifficulty === opt.value}
-                        onChange={() => setQuizDifficulty(opt.value)}
-                      />
-                      {opt.label}
-                    </RadioLabel>
-                  ))}
-                </RadioRow>
-              </FieldGroup>
-
-              <FieldGroup>
                 <FieldLabel>생성 수량</FieldLabel>
                 <NumberRow>
                   <NumberInput
@@ -271,24 +242,6 @@ export default function AiTriggerPanel() {
                         value={opt.value}
                         checked={manualQuizType === opt.value}
                         onChange={() => setManualQuizType(opt.value)}
-                      />
-                      {opt.label}
-                    </RadioLabel>
-                  ))}
-                </RadioRow>
-              </FieldGroup>
-
-              <FieldGroup>
-                <FieldLabel>난이도</FieldLabel>
-                <RadioRow>
-                  {DIFFICULTY_OPTIONS.map((opt) => (
-                    <RadioLabel key={opt.value}>
-                      <RadioInput
-                        type="radio"
-                        name="manual-difficulty"
-                        value={opt.value}
-                        checked={manualDifficulty === opt.value}
-                        onChange={() => setManualDifficulty(opt.value)}
                       />
                       {opt.label}
                     </RadioLabel>
