@@ -330,12 +330,14 @@ export default function ReviewVerificationTab() {
               type="date"
               value={fromDate}
               onChange={(e) => withPageReset(setFromDate)(e.target.value)}
+              max={toDate || undefined}
             />
             <span style={{ color: '#94a3b8' }}>~</span>
             <FilterInput
               type="date"
               value={toDate}
               onChange={(e) => withPageReset(setToDate)(e.target.value)}
+              min={fromDate || undefined}
             />
           </FilterGroup>
           <ResetButton onClick={resetFilters}>필터 초기화</ResetButton>
