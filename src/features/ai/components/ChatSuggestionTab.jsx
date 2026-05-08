@@ -32,6 +32,7 @@ import {
 import { useQueryParams } from '@/shared/hooks/useQueryParams';
 import { useAiPrefill } from '@/shared/hooks/useAiPrefill';
 import AiPrefillBanner from '@/shared/components/AiPrefillBanner';
+import { validateDateRange } from '../../../utils/dateValidation';
 
 /** 페이지당 항목 수 */
 const PAGE_SIZE = 10;
@@ -144,6 +145,7 @@ export default function ChatSuggestionTab() {
   const [editTarget, setEditTarget] = useState(null); // null = 등록, object = 수정
   const [form, setForm] = useState(EMPTY_FORM);
   const [formLoading, setFormLoading] = useState(false);
+  const [dateError, setDateError] = useState(null);
 
   /** API 쿼리 파라미터 조합 */
   const buildParams = useCallback(() => {
@@ -287,6 +289,7 @@ export default function ChatSuggestionTab() {
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
     }));
+    if (name === 'startAt' || name === 'endAt') setDateError(null);
   }
 
   /**
@@ -299,6 +302,8 @@ export default function ChatSuggestionTab() {
       alert('칩 문구를 입력해주세요.');
       return;
     }
+    const rangeErr = validateDateRange(form.startAt, form.endAt, '시작 일시', '종료 일시');
+    if (rangeErr) { setDateError(rangeErr); return; }
     const payload = {
       text: form.text.trim(),
       category: form.category || undefined,
@@ -374,12 +379,14 @@ export default function ChatSuggestionTab() {
               type="date"
               value={fromDate}
               onChange={(e) => withPageReset(setFromDate)(e.target.value)}
+              max={toDate || undefined}
             />
             <DateSep>~</DateSep>
             <FilterInput
               type="date"
               value={toDate}
               onChange={(e) => withPageReset(setToDate)(e.target.value)}
+              min={fromDate || undefined}
             />
           </FilterGroup>
           <ResetButton type="button" onClick={resetFilters}>초기화</ResetButton>
@@ -582,6 +589,7 @@ export default function ChatSuggestionTab() {
                   name="startAt"
                   value={form.startAt}
                   onChange={handleFormChange}
+                  $hasError={!!dateError}
                 />
               </FormField>
               <FormField>
@@ -591,8 +599,10 @@ export default function ChatSuggestionTab() {
                   name="endAt"
                   value={form.endAt}
                   onChange={handleFormChange}
+                  $hasError={!!dateError}
                 />
               </FormField>
+              {dateError && <DateErrorMsg>{dateError}</DateErrorMsg>}
 
               <ModalActions>
                 <CancelBtn type="button" onClick={closeModal} disabled={formLoading}>
@@ -924,12 +934,18 @@ const FormSelect = styled.select`
 
 const FormInput = styled.input`
   padding: ${({ theme }) => theme.spacing.sm};
-  border: 1px solid ${({ theme }) => theme.colors.border};
+  border: 1px solid ${({ $hasError, theme }) => $hasError ? theme.colors.error : theme.colors.border};
   border-radius: 6px;
   background: ${({ theme }) => theme.colors.bgInput};
   color: ${({ theme }) => theme.colors.textPrimary};
   font-size: ${({ theme }) => theme.fontSizes.sm};
-  &:focus { outline: none; border-color: ${({ theme }) => theme.colors.primary}; }
+  &:focus { outline: none; border-color: ${({ $hasError, theme }) => $hasError ? theme.colors.error : theme.colors.primary}; }
+`;
+
+const DateErrorMsg = styled.p`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ theme }) => theme.colors.error};
+  margin-top: 4px;
 `;
 
 const ModalActions = styled.div`

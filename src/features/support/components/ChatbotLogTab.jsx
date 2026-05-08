@@ -261,6 +261,7 @@ export default function ChatbotLogTab() {
             type="datetime-local"
             value={filter.from}
             onChange={(e) => handleFilterChange('from', e.target.value)}
+            max={filter.to || undefined}
           />
         </FilterField>
         <FilterField>
@@ -269,6 +270,7 @@ export default function ChatbotLogTab() {
             type="datetime-local"
             value={filter.to}
             onChange={(e) => handleFilterChange('to', e.target.value)}
+            min={filter.from || undefined}
           />
         </FilterField>
         <RefreshButton
