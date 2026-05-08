@@ -66,6 +66,7 @@ export default function AiTriggerPanel() {
   /* ── 자동 생성 폼 상태 ── */
   const [quizGenre, setQuizGenre] = useState('');
   const [quizCount, setQuizCount] = useState(5);
+  const [autoQuizType, setAutoQuizType] = useState(''); // '' = 자동(랜덤)
 
   /* ── 영화 선택 생성 폼 상태 ── */
   const [selectedMovie, setSelectedMovie] = useState(null);
@@ -111,6 +112,7 @@ export default function AiTriggerPanel() {
     _runGenerate({
       genre: quizGenre || undefined,
       count: Number(quizCount),
+      quizType: autoQuizType || undefined,
     });
   }
 
@@ -182,7 +184,7 @@ export default function AiTriggerPanel() {
 
           {/* 생성 모드 탭 */}
           <TabRow>
-            <TabBtn $active={quizMode === 'auto'} type="button" onClick={() => { setQuizMode('auto'); setQuizResult(null); setGeneratedQuizzes([]); }}>
+            <TabBtn $active={quizMode === 'auto'} type="button" onClick={() => { setQuizMode('auto'); setQuizResult(null); setGeneratedQuizzes([]); setAutoQuizType(''); }}>
               자동 생성
             </TabBtn>
             <TabBtn $active={quizMode === 'manual'} type="button" onClick={() => { setQuizMode('manual'); setQuizResult(null); setGeneratedQuizzes([]); }}>
@@ -201,6 +203,34 @@ export default function AiTriggerPanel() {
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </StyledSelect>
+              </FieldGroup>
+
+              <FieldGroup>
+                <FieldLabel>퀴즈 카테고리</FieldLabel>
+                <RadioRow>
+                  <RadioLabel>
+                    <RadioInput
+                      type="radio"
+                      name="auto-quiz-type"
+                      value=""
+                      checked={autoQuizType === ''}
+                      onChange={() => setAutoQuizType('')}
+                    />
+                    자동
+                  </RadioLabel>
+                  {QUIZ_TYPE_OPTIONS.map((opt) => (
+                    <RadioLabel key={opt.value}>
+                      <RadioInput
+                        type="radio"
+                        name="auto-quiz-type"
+                        value={opt.value}
+                        checked={autoQuizType === opt.value}
+                        onChange={() => setAutoQuizType(opt.value)}
+                      />
+                      {opt.label}
+                    </RadioLabel>
+                  ))}
+                </RadioRow>
               </FieldGroup>
 
               <FieldGroup>
