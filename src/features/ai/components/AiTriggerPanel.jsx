@@ -49,10 +49,11 @@ const GENRE_OPTIONS = [
 
 /** 영화 선택 생성 모드 퀴즈 유형 옵션 */
 const QUIZ_TYPE_OPTIONS = [
-  { value: 'plot',     label: '줄거리' },
-  { value: 'cast',     label: '출연진' },
-  { value: 'director', label: '감독' },
-  { value: 'genre',    label: '장르' },
+  { value: 'plot',      label: '줄거리' },
+  { value: 'cast',      label: '출연진' },
+  { value: 'character', label: '배역' },
+  { value: 'director',  label: '감독' },
+  { value: 'genre',     label: '장르' },
 ];
 
 export default function AiTriggerPanel() {
