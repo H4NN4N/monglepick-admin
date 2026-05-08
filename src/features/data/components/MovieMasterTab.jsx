@@ -91,7 +91,7 @@ const CSV_IMPORT_COLUMNS = [
       try {
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed)) throw new Error('JSON 배열이어야 합니다');
-        return parsed;
+        return JSON.stringify(parsed);
       } catch (err) {
         throw new Error(err.message.startsWith('JSON') ? err.message : `JSON 파싱 실패: ${err.message}`);
       }
@@ -238,6 +238,7 @@ export default function MovieMasterTab() {
   function openCreateModal() {
     setForm(EMPTY_FORM);
     setEditTargetId(null);
+    setDetailLoading(false);
     setModalMode(MODE_CREATE);
   }
 
@@ -337,6 +338,7 @@ export default function MovieMasterTab() {
     setModalMode(null);
     setEditTargetId(null);
     setForm(EMPTY_FORM);
+    setDetailLoading(false);
     setSubmitting(false);
   }
 
@@ -359,32 +361,28 @@ export default function MovieMasterTab() {
       // 숫자 변환 (빈 문자열 → null)
       const toIntOrNull = (v) => (v === '' || v == null ? null : parseInt(v, 10));
       const toFloatOrNull = (v) => (v === '' || v == null ? null : parseFloat(v));
+      const toTrimmedOrNull = (v) => {
+        const trimmed = typeof v === 'string' ? v.trim() : '';
+        return trimmed === '' ? null : trimmed;
+      };
 
       const payload = {
         title: form.title?.trim(),
-        titleEn: form.titleEn || null,
-        overview: form.overview || null,
-        genres: form.genres || null,
-        director: form.director || null,
+        titleEn: toTrimmedOrNull(form.titleEn),
+        overview: toTrimmedOrNull(form.overview),
+        genres: toTrimmedOrNull(form.genres),
+        director: toTrimmedOrNull(form.director),
         releaseYear: toIntOrNull(form.releaseYear),
-        releaseDate: form.releaseDate || null,
+        releaseDate: toTrimmedOrNull(form.releaseDate),
         runtime: toIntOrNull(form.runtime),
         rating: toFloatOrNull(form.rating),
-        posterPath: form.posterPath || null,
-        certification: form.certification || null,
-        trailerUrl: form.trailerUrl || null,
-        tagline: form.tagline || null,
-        originalLanguage: form.originalLanguage || null,
-        backdropPath: form.backdropPath || null,
+        posterPath: toTrimmedOrNull(form.posterPath),
+        certification: toTrimmedOrNull(form.certification),
+        trailerUrl: toTrimmedOrNull(form.trailerUrl),
+        tagline: toTrimmedOrNull(form.tagline),
+        originalLanguage: toTrimmedOrNull(form.originalLanguage),
+        backdropPath: toTrimmedOrNull(form.backdropPath),
         adult: !!form.adult,
-        // CRUD 모달에서는 아래 필드는 미입력 — 기존 값 유지 X (null로 덮어쓰기 됨)
-        // 사용 빈도 낮은 필드는 향후 별도 모달로 분리 가능
-        castMembers: null,
-        keywords: null,
-        ottPlatforms: null,
-        moodTags: null,
-        awards: null,
-        filmingLocation: null,
       };
 
       if (modalMode === MODE_CREATE) {
